@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import {
@@ -138,4 +140,33 @@ test("schema artifact lists required packet fields", () => {
     assert.ok(schema.required.includes(field), `${field} is required`);
   }
   assert.match(schema.properties.digest.pattern, /sha256/);
+});
+
+test("validate-packet CLI prints machine-readable valid status", () => {
+  const packetPath =
+    "/Users/rhyu/Documents/Codex/2026-09-03/i-want-you-to-look-for/outputs/hush-runtime-packets/PKT-T01-R1.json";
+  const result = spawnSync(process.execPath, [join(root, "bin", "hush-agents.mjs"), "validate-packet", packetPath], {
+    cwd: root,
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0);
+  assert.deepEqual(JSON.parse(result.stdout), { status: PACKET_STATUS.VALID });
+  assert.equal(result.stderr, "");
+});
+
+test("validate-packet CLI exits nonzero with issue details for invalid packet", () => {
+  const packet = { ...basePacket(), target_agent: "puck" };
+  const packetPath = join(mkdtempSync(join(tmpdir(), "hush-packet-")), "invalid.json");
+  writeFileSync(packetPath, JSON.stringify(packet));
+  const result = spawnSync(process.execPath, [join(root, "bin", "hush-agents.mjs"), "validate-packet", packetPath], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  const output = JSON.parse(result.stdout);
+
+  assert.equal(result.status, 1);
+  assert.equal(output.status, PACKET_STATUS.INVALID_DIGEST);
+  assert.equal(output.issue.field, "digest");
+  assert.equal(result.stderr, "");
 });

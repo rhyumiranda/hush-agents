@@ -3,6 +3,8 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSyn
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { PACKET_STATUS, validatePacket } from "../lib/runtime/packet.mjs";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const home = process.env.HOME;
 
@@ -10,6 +12,7 @@ function usage() {
   console.log(`hush-agents[3]{command,what,next}:
   install,"copy Codex, Claude Code, Gemini CLI, and OpenCode agents","hush-agents doctor"
   doctor,"check package files + installed files","hush-agents install"
+  validate-packet <packet.json>,"validate packet shape, digest, and status","hush-agents validate-packet packet.json"
   help,"show commands","hush-agents install"`);
 }
 
@@ -97,12 +100,47 @@ function doctor() {
   readme_chars: ${readme.length}`);
 }
 
+function validatePacketCommand(packetPath) {
+  if (!packetPath) {
+    console.log(
+      JSON.stringify({
+        status: "READ_ERROR",
+        issue: { field: "path", rule: "packet path is required" },
+      }),
+    );
+    process.exit(2);
+  }
+
+  let packet;
+  try {
+    packet = JSON.parse(readFileSync(packetPath, "utf8"));
+  } catch (error) {
+    console.log(
+      JSON.stringify({
+        status: "READ_ERROR",
+        issue: {
+          field: "path",
+          path: packetPath,
+          rule: error instanceof SyntaxError ? "must be valid JSON" : "must be readable",
+          message: error.message,
+        },
+      }),
+    );
+    process.exit(2);
+  }
+
+  const result = validatePacket(packet);
+  console.log(JSON.stringify(result));
+  process.exit(result.status === PACKET_STATUS.VALID ? 0 : 1);
+}
+
 const command = process.argv[2] ?? "help";
 if (command === "install") install();
 else if (command === "doctor") doctor();
+else if (command === "validate-packet") validatePacketCommand(process.argv[3]);
 else if (command === "help" || command === "--help" || command === "-h") usage();
 else {
   console.log(`error: unknown command ${command}
-help: valid commands are install, doctor, help`);
+help: valid commands are install, doctor, validate-packet, help`);
   process.exit(2);
 }
