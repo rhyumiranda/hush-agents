@@ -77,6 +77,21 @@ Use the skill when you want the whole workflow explained or applied:
 $hush-agents run this PRD through the loop
 ```
 
+## Runtime Foundation
+
+`hush-agents` now includes the first runtime pieces:
+
+- `validate-packet <packet.json>` checks sealed packet integrity
+- packet digests use canonical JSON with `digest` omitted
+- invalid packets return stable JSON with `status`, `issue.field`, and `issue.rule`
+- append-only state helpers write JSONL under `.hush/runs/<run_id>/events.jsonl`
+
+Example:
+
+```sh
+hush-agents validate-packet packet.json
+```
+
 ## Why It Works
 
 Most AI coding fails from mixed roles.
@@ -106,9 +121,9 @@ See [`docs/live-agent-shipping-runtime-report.md`](docs/live-agent-shipping-runt
 
 ## Not Magic
 
-This package gives you Codex, Claude Code, Gemini CLI, and OpenCode profiles, plus a workflow skill.
+This package gives you Codex, Claude Code, Gemini CLI, and OpenCode profiles, plus a workflow skill and the first packet/state runtime foundation.
 
-It does not yet ship a full production Hush runtime. The runtime proof exists as a local prototype; the next step is turning that into a stable CLI.
+It does not yet ship the full Hush runtime. Warm worktree bases, scheduler, merge queue, and full run commands are next.
 
 ## License
 
