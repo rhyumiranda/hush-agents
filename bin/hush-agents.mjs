@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,16 +8,27 @@ const home = process.env.HOME;
 
 function usage() {
   console.log(`hush-agents[3]{command,what,next}:
-  install,"copy Codex agents + skill","hush-agents doctor"
+  install,"copy Codex, Claude Code, Gemini CLI, and OpenCode agents","hush-agents doctor"
   doctor,"check package files + installed files","hush-agents install"
   help,"show commands","hush-agents install"`);
 }
 
-function copyDirFiles(src, dest) {
+function copyDirFiles(src, dest, extension) {
   mkdirSync(dest, { recursive: true });
   for (const name of readdirSync(src)) {
-    copyFileSync(join(src, name), join(dest, name));
+    const source = join(src, name);
+    if (!statSync(source).isFile()) continue;
+    if (extension && !name.endsWith(extension)) continue;
+    copyFileSync(source, join(dest, name));
   }
+}
+
+function copySkill(destRoot) {
+  mkdirSync(join(destRoot, "skills", "hush-agents"), { recursive: true });
+  copyFileSync(
+    join(root, "skills", "hush-agents", "SKILL.md"),
+    join(destRoot, "skills", "hush-agents", "SKILL.md"),
+  );
 }
 
 function install() {
@@ -25,32 +36,64 @@ function install() {
     console.log("error: HOME is not set");
     process.exit(1);
   }
-  copyDirFiles(join(root, "agents"), join(home, ".codex", "agents"));
-  mkdirSync(join(home, ".codex", "skills", "hush-agents"), { recursive: true });
-  copyFileSync(
-    join(root, "skills", "hush-agents", "SKILL.md"),
-    join(home, ".codex", "skills", "hush-agents", "SKILL.md"),
-  );
-  console.log(`installed[2]{kind,path}:
-  agents,${join(home, ".codex", "agents")}
-  skill,${join(home, ".codex", "skills", "hush-agents")}`);
+  copyDirFiles(join(root, "agents"), join(home, ".codex", "agents"), ".toml");
+  copyDirFiles(join(root, "agents", "claude"), join(home, ".claude", "agents"), ".md");
+  copyDirFiles(join(root, "agents", "gemini"), join(home, ".gemini", "agents"), ".md");
+  copyDirFiles(join(root, "agents", "opencode"), join(home, ".config", "opencode", "agents"), ".md");
+  copySkill(join(home, ".codex"));
+  copySkill(join(home, ".claude"));
+  copySkill(join(home, ".gemini"));
+  copySkill(join(home, ".config", "opencode"));
+  console.log(`installed[8]{kind,harness,path}:
+  agents,codex,${join(home, ".codex", "agents")}
+  skill,codex,${join(home, ".codex", "skills", "hush-agents")}
+  agents,claude-code,${join(home, ".claude", "agents")}
+  skill,claude-code,${join(home, ".claude", "skills", "hush-agents")}
+  agents,gemini-cli,${join(home, ".gemini", "agents")}
+  skill,gemini-cli,${join(home, ".gemini", "skills", "hush-agents")}
+  agents,opencode,${join(home, ".config", "opencode", "agents")}
+  skill,opencode,${join(home, ".config", "opencode", "skills", "hush-agents")}`);
 }
 
 function doctor() {
   const agentNames = ["fable", "rook", "flint", "puck", "vera", "hush"];
-  const bundledAgents = agentNames.filter((name) => existsSync(join(root, "agents", `${name}.toml`)));
-  const installedAgents = home
+  const bundledCodexAgents = agentNames.filter((name) => existsSync(join(root, "agents", `${name}.toml`)));
+  const bundledClaudeAgents = agentNames.filter((name) => existsSync(join(root, "agents", "claude", `${name}.md`)));
+  const bundledGeminiAgents = agentNames.filter((name) => existsSync(join(root, "agents", "gemini", `${name}.md`)));
+  const bundledOpencodeAgents = agentNames.filter((name) => existsSync(join(root, "agents", "opencode", `${name}.md`)));
+  const installedCodexAgents = home
     ? agentNames.filter((name) => existsSync(join(home, ".codex", "agents", `${name}.toml`)))
     : [];
+  const installedClaudeAgents = home
+    ? agentNames.filter((name) => existsSync(join(home, ".claude", "agents", `${name}.md`)))
+    : [];
+  const installedGeminiAgents = home
+    ? agentNames.filter((name) => existsSync(join(home, ".gemini", "agents", `${name}.md`)))
+    : [];
+  const installedOpencodeAgents = home
+    ? agentNames.filter((name) => existsSync(join(home, ".config", "opencode", "agents", `${name}.md`)))
+    : [];
   const bundledSkill = existsSync(join(root, "skills", "hush-agents", "SKILL.md"));
-  const installedSkill = home && existsSync(join(home, ".codex", "skills", "hush-agents", "SKILL.md"));
+  const installedCodexSkill = home && existsSync(join(home, ".codex", "skills", "hush-agents", "SKILL.md"));
+  const installedClaudeSkill = home && existsSync(join(home, ".claude", "skills", "hush-agents", "SKILL.md"));
+  const installedGeminiSkill = home && existsSync(join(home, ".gemini", "skills", "hush-agents", "SKILL.md"));
+  const installedOpencodeSkill = home && existsSync(join(home, ".config", "opencode", "skills", "hush-agents", "SKILL.md"));
   const readme = readFileSync(join(root, "README.md"), "utf8");
   console.log(`doctor:
   package: hush-agents
-  bundled_agents: ${bundledAgents.length}/6
+  bundled_codex_agents: ${bundledCodexAgents.length}/6
+  bundled_claude_code_agents: ${bundledClaudeAgents.length}/6
+  bundled_gemini_cli_agents: ${bundledGeminiAgents.length}/6
+  bundled_opencode_agents: ${bundledOpencodeAgents.length}/6
   bundled_skill: ${bundledSkill ? "yes" : "no"}
-  installed_agents: ${installedAgents.length}/6
-  installed_skill: ${installedSkill ? "yes" : "no"}
+  installed_codex_agents: ${installedCodexAgents.length}/6
+  installed_claude_code_agents: ${installedClaudeAgents.length}/6
+  installed_gemini_cli_agents: ${installedGeminiAgents.length}/6
+  installed_opencode_agents: ${installedOpencodeAgents.length}/6
+  installed_codex_skill: ${installedCodexSkill ? "yes" : "no"}
+  installed_claude_code_skill: ${installedClaudeSkill ? "yes" : "no"}
+  installed_gemini_cli_skill: ${installedGeminiSkill ? "yes" : "no"}
+  installed_opencode_skill: ${installedOpencodeSkill ? "yes" : "no"}
   readme_chars: ${readme.length}`);
 }
 

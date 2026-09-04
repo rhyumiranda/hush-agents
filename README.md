@@ -2,7 +2,7 @@
 
 **Turn a PRD into code without letting one agent grade its own homework.**
 
-Hush Agents is a small crew for agentic engineering:
+Hush Agents is a small multi-harness crew for agentic engineering:
 
 | Agent | Job |
 |---|---|
@@ -27,7 +27,7 @@ If evidence is weak, Hush refuses to accept.
 
 ## Install
 
-Install agents + skill into Codex:
+Install agents + skill into Codex, Claude Code, Gemini CLI, and OpenCode:
 
 ```sh
 npx hush-agents install
@@ -35,8 +35,14 @@ npx hush-agents install
 
 This copies:
 
-- agent profiles into `~/.codex/agents`
-- one skill into `~/.codex/skills/hush-agents`
+- Codex agents into `~/.codex/agents`
+- Codex skill into `~/.codex/skills/hush-agents`
+- Claude Code agents into `~/.claude/agents`
+- Claude Code skill into `~/.claude/skills/hush-agents`
+- Gemini CLI agents into `~/.gemini/agents`
+- Gemini CLI skill into `~/.gemini/skills/hush-agents`
+- OpenCode agents into `~/.config/opencode/agents`
+- OpenCode skill into `~/.config/opencode/skills/hush-agents`
 
 Check install:
 
@@ -52,7 +58,7 @@ npx skills add rhyumiranda/hush-agents --skill hush-agents
 
 ## Use
 
-In Codex, call the agents by name:
+In any supported harness, call the agents by name:
 
 ```text
 @fable turn this PRD into requirements
@@ -62,6 +68,8 @@ In Codex, call the agents by name:
 @vera align code to requirements
 @hush decide the next route
 ```
+
+If Claude Code only shows `general-purpose`, run `npx hush-agents install` again. That means Claude does not see the custom `.md` agents yet.
 
 Use the skill when you want the whole workflow explained or applied:
 
@@ -98,7 +106,7 @@ See [`docs/live-agent-shipping-runtime-report.md`](docs/live-agent-shipping-runt
 
 ## Not Magic
 
-This package gives you agent profiles and a workflow skill.
+This package gives you Codex, Claude Code, Gemini CLI, and OpenCode profiles, plus a workflow skill.
 
 It does not yet ship a full production Hush runtime. The runtime proof exists as a local prototype; the next step is turning that into a stable CLI.
 
