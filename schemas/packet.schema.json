@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hush-agents.local/schemas/packet.schema.json",
+  "title": "Hush Runtime Packet",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "run_id",
+    "task_id",
+    "packet_id",
+    "packet_revision",
+    "target_agent",
+    "base_sha",
+    "requirements",
+    "allowed_paths",
+    "allowed_operations",
+    "blocked_paths",
+    "required_commands",
+    "expected_evidence",
+    "vera_required",
+    "expires_at",
+    "supersedes",
+    "digest"
+  ],
+  "properties": {
+    "run_id": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "packet_id": { "type": "string", "minLength": 1 },
+    "packet_revision": { "type": "integer", "minimum": 1 },
+    "target_agent": { "type": "string", "minLength": 1 },
+    "base_sha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "allowed_paths": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "allowed_operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": ["create", "edit", "modify", "delete", "rename"]
+      }
+    },
+    "blocked_paths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "required_commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "expected_evidence": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "vera_required": { "type": "boolean" },
+    "expires_at": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "format": "date-time" }
+      ]
+    },
+    "supersedes": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}
