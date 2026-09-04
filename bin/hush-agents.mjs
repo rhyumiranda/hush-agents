@@ -12,7 +12,7 @@ function usage() {
   console.log(`hush-agents[3]{command,what,next}:
   install,"copy Codex, Claude Code, Gemini CLI, and OpenCode agents","hush-agents doctor"
   doctor,"check package files + installed files","hush-agents install"
-  validate-packet <packet.json>,"validate packet shape, digest, and status","hush-agents validate-packet packet.json"
+  validate-packet <packet.json> [context options],"validate packet shape, digest, and status","hush-agents validate-packet packet.json"
   help,"show commands","hush-agents install"`);
 }
 
@@ -100,7 +100,7 @@ function doctor() {
   readme_chars: ${readme.length}`);
 }
 
-function validatePacketCommand(packetPath) {
+function validatePacketCommand(packetPath, args = []) {
   if (!packetPath) {
     console.log(
       JSON.stringify({
@@ -129,15 +129,77 @@ function validatePacketCommand(packetPath) {
     process.exit(2);
   }
 
-  const result = validatePacket(packet);
+  const context = parsePacketContextArgs(args);
+  const result = validatePacket(packet, context);
   console.log(JSON.stringify(result));
   process.exit(result.status === PACKET_STATUS.VALID ? 0 : 1);
+}
+
+function parsePacketContextArgs(args) {
+  const context = {};
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const parsed = parseOption(arg);
+    const name = parsed.name;
+    const value = parsed.value ?? args[index + 1];
+    if (parsed.value === undefined) index += 1;
+
+    if (value === undefined) {
+      console.log(
+        JSON.stringify({
+          status: "READ_ERROR",
+          issue: { field: name, rule: "option value is required" },
+        }),
+      );
+      process.exit(2);
+    }
+
+    if (name === "--current-base-sha") context.currentBaseSha = value;
+    else if (name === "--target-agent") context.targetAgent = value;
+    else if (name === "--changed-path") pushValue(context, "changedPaths", value);
+    else if (name === "--dependency") pushDependency(context, value);
+    else if (name === "--active-packet-id") pushValue(context, "activePacketIds", value);
+    else if (name === "--superseded-packet-id") pushValue(context, "supersededPacketIds", value);
+    else if (name === "--now") context.now = value;
+    else {
+      console.log(
+        JSON.stringify({
+          status: "READ_ERROR",
+          issue: { field: name, rule: "unknown option" },
+        }),
+      );
+      process.exit(2);
+    }
+  }
+
+  return context;
+}
+
+function parseOption(arg) {
+  const separator = arg.indexOf("=");
+  if (separator === -1) return { name: arg, value: undefined };
+  return { name: arg.slice(0, separator), value: arg.slice(separator + 1) };
+}
+
+function pushValue(context, key, value) {
+  context[key] ??= [];
+  context[key].push(value);
+}
+
+function pushDependency(context, value) {
+  const separator = value.indexOf("=");
+  const dependency =
+    separator === -1
+      ? { id: value, status: "BLOCKED" }
+      : { id: value.slice(0, separator), status: value.slice(separator + 1) };
+  pushValue(context, "dependencies", dependency);
 }
 
 const command = process.argv[2] ?? "help";
 if (command === "install") install();
 else if (command === "doctor") doctor();
-else if (command === "validate-packet") validatePacketCommand(process.argv[3]);
+else if (command === "validate-packet") validatePacketCommand(process.argv[3], process.argv.slice(4));
 else if (command === "help" || command === "--help" || command === "-h") usage();
 else {
   console.log(`error: unknown command ${command}

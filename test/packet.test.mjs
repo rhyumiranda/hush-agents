@@ -90,6 +90,15 @@ test("superseded packet is rejected", () => {
   });
 });
 
+test("past expires_at is rejected as expired", () => {
+  const packet = sealPacket({ ...basePacket(), expires_at: "2026-09-05T00:00:00.000Z" });
+
+  assert.deepEqual(validatePacket(packet, { now: "2026-09-05T00:00:01.000Z" }), {
+    status: PACKET_STATUS.EXPIRED,
+    issue: { field: "expires_at", expires_at: "2026-09-05T00:00:00.000Z" },
+  });
+});
+
 test("wrong base and wrong target agent are distinct results", () => {
   const packet = basePacket();
 
@@ -169,4 +178,63 @@ test("validate-packet CLI exits nonzero with issue details for invalid packet", 
   assert.equal(output.status, PACKET_STATUS.INVALID_DIGEST);
   assert.equal(output.issue.field, "digest");
   assert.equal(result.stderr, "");
+});
+
+test("validate-packet CLI accepts context options for packet status checks", () => {
+  const cases = [
+    {
+      name: "wrong-base",
+      packet: basePacket(),
+      args: ["--current-base-sha", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+      status: PACKET_STATUS.WRONG_BASE,
+    },
+    {
+      name: "wrong-agent",
+      packet: basePacket(),
+      args: ["--target-agent", "puck"],
+      status: PACKET_STATUS.WRONG_AGENT,
+    },
+    {
+      name: "out-of-scope",
+      packet: basePacket(),
+      args: ["--changed-path", "README.md"],
+      status: PACKET_STATUS.OUT_OF_SCOPE,
+    },
+    {
+      name: "blocked-dependency",
+      packet: basePacket(),
+      args: ["--dependency", "T-02=BLOCKED"],
+      status: PACKET_STATUS.BLOCKED_DEPENDENCY,
+    },
+    {
+      name: "superseded",
+      packet: basePacket(),
+      args: ["--superseded-packet-id", "PKT-T01-R1"],
+      status: PACKET_STATUS.SUPERSEDED,
+    },
+    {
+      name: "expired",
+      packet: sealPacket({ ...basePacket(), expires_at: "2026-09-05T00:00:00.000Z" }),
+      args: ["--now", "2026-09-05T00:00:01.000Z"],
+      status: PACKET_STATUS.EXPIRED,
+    },
+  ];
+
+  for (const cliCase of cases) {
+    const packetDir = mkdtempSync(join(tmpdir(), `hush-packet-${cliCase.name}-`));
+    const packetPath = join(packetDir, "packet.json");
+    writeFileSync(packetPath, JSON.stringify(cliCase.packet));
+    const result = spawnSync(
+      process.execPath,
+      [join(root, "bin", "hush-agents.mjs"), "validate-packet", packetPath, ...cliCase.args],
+      {
+        cwd: root,
+        encoding: "utf8",
+      },
+    );
+
+    assert.equal(result.status, 1, cliCase.name);
+    assert.equal(JSON.parse(result.stdout).status, cliCase.status, cliCase.name);
+    assert.equal(result.stderr, "", cliCase.name);
+  }
 });
