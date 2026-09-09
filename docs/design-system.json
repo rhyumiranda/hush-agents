@@ -1,0 +1,228 @@
+{
+  "name": "Hush Agents Ink Character",
+  "version": "1.0.0",
+  "source": {
+    "type": "reference-image",
+    "path": "/var/folders/sq/r9bskyps5nv2m2cvmf52cp6h0000gn/T/codex-clipboard-56b38352-7277-4681-894f-0e1969851c3f.png",
+    "scope": "character illustration and creative direction",
+    "confidence": "high for illustration direction, low for full interface tokens"
+  },
+  "creative_direction": {
+    "name": "Friendly imperfect ink",
+    "keywords": [
+      "hand-drawn",
+      "monochrome",
+      "playful",
+      "warm",
+      "human",
+      "slightly odd",
+      "unpolished on purpose"
+    ],
+    "emotional_goal": "Make the product feel clever, approachable, and made by people rather than a sterile automation system.",
+    "visual_thesis": "Use a simple black ink character with visible imperfections as the emotional anchor, then keep the surrounding interface quiet so the character carries the personality.",
+    "design_tension": "Friendly character energy balanced by calm, precise product structure.",
+    "do": [
+      "Preserve asymmetry and hand pressure variation.",
+      "Let small imperfections remain visible.",
+      "Use generous whitespace around character art.",
+      "Keep supporting UI restrained and legible.",
+      "Use the character as a guide, status marker, or moment of reassurance."
+    ],
+    "dont": [
+      "Do not smooth the drawing into a sterile vector icon.",
+      "Do not add glossy gradients, 3D rendering, or polished mascot detail.",
+      "Do not combine the ink character with a noisy visual theme.",
+      "Do not use the character as decoration on every surface.",
+      "Do not reduce accessibility contrast for the sake of softness."
+    ]
+  },
+  "color": {
+    "mode": "ink-on-paper",
+    "tokens": {
+      "ink": {
+        "value": "#080808",
+        "usage": "primary illustration, primary text, strong borders",
+        "role": "foreground"
+      },
+      "paper": {
+        "value": "#FAFAF7",
+        "usage": "illustration background and calm content surfaces",
+        "role": "primary background"
+      },
+      "muted_paper": {
+        "value": "#F0F0EB",
+        "usage": "secondary panels, inactive areas, soft separation",
+        "role": "secondary background"
+      },
+      "wash": {
+        "value": "#E5E5DE",
+        "usage": "subtle dividers and disabled controls",
+        "role": "border"
+      },
+      "signal": {
+        "value": "#080808",
+        "usage": "status emphasis through weight, not hue",
+        "role": "semantic emphasis"
+      }
+    },
+    "rules": [
+      "Prefer one-color ink illustrations.",
+      "Use color sparingly in the product UI; the reference image is intentionally monochrome.",
+      "Maintain at least WCAG AA contrast for interface text.",
+      "Use texture or stroke variation for personality, never low contrast."
+    ]
+  },
+  "typography": {
+    "direction": "Friendly humanist sans-serif paired with optional hand-lettered display moments.",
+    "families": {
+      "ui": "Inter, ui-sans-serif, system-ui, sans-serif",
+      "display": "ui-rounded, Inter, ui-sans-serif, system-ui, sans-serif",
+      "mono": "ui-monospace, SFMono-Regular, Menlo, monospace"
+    },
+    "tokens": {
+      "display": {
+        "size": "clamp(2rem, 5vw, 4.5rem)",
+        "weight": 800,
+        "line_height": 0.95,
+        "letter_spacing": "0"
+      },
+      "heading": {
+        "size": "1.5rem",
+        "weight": 750,
+        "line_height": 1.1,
+        "letter_spacing": "0"
+      },
+      "body": {
+        "size": "1rem",
+        "weight": 450,
+        "line_height": 1.55,
+        "letter_spacing": "0"
+      },
+      "caption": {
+        "size": "0.75rem",
+        "weight": 650,
+        "line_height": 1.3,
+        "letter_spacing": "0.02em"
+      }
+    },
+    "rules": [
+      "Keep letter spacing at zero for display and body text.",
+      "Use weight and spacing to create hierarchy instead of extra colors.",
+      "Do not use a novelty handwritten font for long-form UI text."
+    ]
+  },
+  "illustration": {
+    "style": "single-color rough ink drawing",
+    "line_quality": {
+      "variation": "visible pressure and width variation",
+      "edge": "grainy, imperfect, slightly feathered",
+      "geometry": "organic curves with intentional asymmetry",
+      "cleanup": "remove accidental noise only; retain character"
+    },
+    "character_traits": [
+      "simple round face",
+      "minimal facial features",
+      "small confident smile",
+      "side-facing cap or role marker",
+      "slightly uneven silhouette",
+      "large empty negative space"
+    ],
+    "rendering": {
+      "preferred_asset": "transparent PNG or high-resolution raster with paper background handled by the UI",
+      "alternate_asset": "SVG that preserves rough stroke texture rather than mathematically perfect paths",
+      "recommended_master_size": "2048x2048",
+      "display_size": "32px to 320px depending on context",
+      "background": "paper or transparent",
+      "shadow": "none by default"
+    },
+    "role_variants": {
+      "fable": "scribe, notebook, or story mark",
+      "rook": "navigator, map, or compass mark",
+      "flint": "builder, tool, or spark mark",
+      "puck": "tester, magnifier, or mischievous mark",
+      "vera": "inspector, seal, or comparison mark",
+      "hush": "quiet captain, harbor light, or final gate mark"
+    }
+  },
+  "shape_and_layout": {
+    "corner_radius": {
+      "default": "4px",
+      "emphasis": "8px",
+      "rule": "Prefer modest rounding; avoid soft toy-like cards."
+    },
+    "borders": {
+      "default": "1px solid #080808",
+      "strong": "2px solid #080808",
+      "illustration": "irregular hand-drawn stroke"
+    },
+    "spacing": {
+      "unit": "4px",
+      "scale": [4, 8, 12, 16, 24, 32, 48, 64],
+      "principle": "Give the character room to breathe; use tighter spacing for operational data."
+    },
+    "composition": {
+      "preferred": "unframed character beside or above a concise message",
+      "hero": "character first, then product promise, then next action",
+      "workflow": "character marks at key state transitions, not on every node",
+      "negative_space": "high"
+    }
+  },
+  "components": {
+    "character_mark": {
+      "purpose": "humanize an agent, state, or empty state",
+      "anatomy": ["ink illustration", "short label", "optional status line"],
+      "behavior": "static by default; use only subtle motion for meaningful state changes"
+    },
+    "status_card": {
+      "background": "paper",
+      "border": "ink",
+      "radius": "4px",
+      "padding": "16px",
+      "icon": "small character crop or simple ink mark",
+      "rule": "Never place a status card inside another card."
+    },
+    "primary_action": {
+      "background": "ink",
+      "foreground": "paper",
+      "border": "2px solid ink",
+      "radius": "4px",
+      "weight": 700,
+      "interaction": "invert to paper background with ink text on hover"
+    },
+    "secondary_action": {
+      "background": "transparent",
+      "foreground": "ink",
+      "border": "1px solid ink",
+      "radius": "4px"
+    }
+  },
+  "motion": {
+    "personality": "small, deliberate, slightly physical",
+    "enter": "short ease-out fade with 2px vertical movement",
+    "success": "subtle hand-drawn wobble or stamp-like settle",
+    "error": "brief horizontal nudge, never a violent shake",
+    "duration": {
+      "micro": "120ms",
+      "standard": "180ms",
+      "expressive": "280ms"
+    },
+    "reduced_motion": "remove movement and preserve state change through contrast and text"
+  },
+  "accessibility": {
+    "contrast": "WCAG AA minimum for all UI text",
+    "alt_text": "Describe the character's role or state, not just 'illustration'.",
+    "meaning": "Never communicate status through illustration alone.",
+    "focus": "Use a visible 2px ink focus ring with 2px offset.",
+    "motion": "Respect prefers-reduced-motion."
+  },
+  "implementation_notes": {
+    "most_important_rule": "The interface should feel precise underneath and human on top.",
+    "calibration": "The reference image defines the illustration language, not exact UI dimensions or typography.",
+    "review_questions": [
+      "Does the character still look hand-made at the rendered size?",
+      "Can a user understand the state without seeing the illustration?",
+      "Is the surrounding interface quiet enough for the character to matter?",
+      "Did we preserve asymmetry instead of polishing away the personality?"
+    ]
+  }
+}
