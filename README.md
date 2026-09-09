@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/hush-agents-banner.jpeg" alt="Hush Agents workflow: PRD to Fable, Rook, Flint, Puck, Vera, Hush, and a pull request" width="100%">
+</p>
+
 <h1 align="center">Hush Agents</h1>
 
 <p align="center">
@@ -13,11 +17,6 @@
 
 Hush Agents is a multi-harness crew for turning product intent into scoped
 implementation, independent verification, and requirement alignment.
-
-```text
-PRD -> Fable -> Rook -> Flint -> Puck + Vera -> Hush -> PR
-                    \-> parallel tasks when safe
-```
 
 ## Install
 

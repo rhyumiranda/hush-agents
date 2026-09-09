@@ -59,7 +59,8 @@ test("ships readme-craft skill", () => {
 test("readme stays proportionate", () => {
   const readme = readFileSync(join(root, "README.md"), "utf8");
   assert.ok(readme.length < 6000);
-  assert.match(readme, /PRD -> Fable -> Rook -> Flint -> Puck \+ Vera -> Hush -> PR/);
+  assert.match(readme, /assets\/hush-agents-banner\.jpeg/);
+  assert.doesNotMatch(readme, /PRD -> Fable -> Rook -> Flint -> Puck \+ Vera -> Hush -> PR/);
   assert.match(readme, /Claude Code/);
   assert.match(readme, /Gemini CLI/);
   assert.match(readme, /OpenCode/);
