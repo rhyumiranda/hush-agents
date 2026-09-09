@@ -16,7 +16,7 @@ Hush Agents is a small multi-harness crew for agentic engineering:
 That is the whole idea:
 
 ```text
-PRD -> Fable -> Rook -> Flint -> Puck -> Vera -> Hush accepts
+PRD -> Fable -> Rook -> parallel Flint -> Puck/Vera -> integrate once -> PR -> CI -> release
 ```
 
 If something is vague, Fable asks.
@@ -24,6 +24,8 @@ If work conflicts, Rook blocks.
 If code is wrong, Puck catches it.
 If tests pass but intent is wrong, Vera catches it.
 If evidence is weak, Hush refuses to accept.
+
+Independent tasks run in parallel. Hush integrates only when a candidate is ready for a PR. A clean integration reuses Puck/Vera evidence when the implementation patch and affected dependencies are unchanged; conflict resolution triggers targeted checks only.
 
 ## Install
 
@@ -85,11 +87,16 @@ $hush-agents run this PRD through the loop
 - packet digests use canonical JSON with `digest` omitted
 - invalid packets return stable JSON with `status`, `issue.field`, and `issue.rule`
 - append-only state helpers write JSONL under `.hush/runs/<run_id>/events.jsonl`
+- Flint can use hash-anchored reads and edits that reject stale files before changing code
+- Hush tracks pre-integration evidence and targeted final rechecks
 
 Example:
 
 ```sh
 hush-agents validate-packet packet.json
+
+hush-agents hashline-read src/file.js
+hush-agents hashline-patch src/file.js patch.json --dry-run
 ```
 
 ## Why It Works

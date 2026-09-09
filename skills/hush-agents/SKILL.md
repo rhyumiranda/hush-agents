@@ -23,9 +23,11 @@ Use this when a user wants to turn a PRD, issue, or product intent into code thr
 3. Hush issues one immutable packet for one task.
 4. Flint implements only allowed writable surfaces.
 5. Hush freezes the candidate snapshot.
-6. Puck verifies behavior and regression evidence.
-7. Vera checks whether the code still matches the requirement.
-8. Hush accepts only when required evidence matches.
+6. Puck verifies behavior; Vera checks requirement alignment only when required.
+7. Independent tasks keep moving in parallel.
+8. Hush integrates a ready candidate once at the PR boundary.
+9. Hush reuses evidence when the implementation patch is unchanged; otherwise it runs targeted rechecks.
+10. Hush accepts only when the integrated candidate has valid evidence and passing integration checks.
 
 ## Hard Rules
 
@@ -34,6 +36,8 @@ Use this when a user wants to turn a PRD, issue, or product intent into code thr
 - Do not accept without packet, snapshot, report, and digest bindings.
 - Do not parallelize tasks that share writable files, migrations, auth policy, route registration, global state, or test fixtures.
 - If the PRD is vague, route to Fable or a human before coding.
+- Do not rerun Puck or Vera only because a clean rebase changed the commit SHA.
+- Recheck only changed behavior or affected dependencies after integration.
 
 ## Useful Output
 
