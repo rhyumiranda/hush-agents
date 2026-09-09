@@ -2,136 +2,130 @@
 
 **Turn a PRD into code without letting one agent grade its own homework.**
 
-Hush Agents is a small multi-harness crew for agentic engineering:
-
-| Agent | Job |
-|---|---|
-| Fable | turns intent into clear requirements |
-| Rook | splits work into safe tasks |
-| Flint | writes one scoped code change |
-| Puck | tests the change independently |
-| Vera | checks code still matches the requirement |
-| Hush | controls packets, worktrees, routing, and acceptance |
-
-That is the whole idea:
+Hush Agents is a multi-harness crew for turning product intent into scoped
+implementation, independent verification, and requirement alignment.
 
 ```text
-PRD -> Fable -> Rook -> parallel Flint -> Puck/Vera -> integrate once -> PR -> CI -> release
+PRD -> Fable -> Rook -> Flint -> Puck + Vera -> Hush -> PR
+                    \-> parallel tasks when safe
 ```
-
-If something is vague, Fable asks.
-If work conflicts, Rook blocks.
-If code is wrong, Puck catches it.
-If tests pass but intent is wrong, Vera catches it.
-If evidence is weak, Hush refuses to accept.
-
-Independent tasks run in parallel. Hush integrates only when a candidate is ready for a PR. A clean integration reuses Puck/Vera evidence when the implementation patch and affected dependencies are unchanged; conflict resolution triggers targeted checks only.
 
 ## Install
 
-Install agents + skills into Codex, Claude Code, Gemini CLI, and OpenCode:
+Install six agents and two skills into Codex, Claude Code, Gemini CLI, and
+OpenCode:
 
 ```sh
 npx hush-agents install
 ```
 
-This copies:
-
-- Codex agents into `~/.codex/agents`
-- Codex skills into `~/.codex/skills/hush-agents` and `~/.codex/skills/readme-craft`
-- Claude Code agents into `~/.claude/agents`
-- Claude Code skills into `~/.claude/skills/hush-agents` and `~/.claude/skills/readme-craft`
-- Gemini CLI agents into `~/.gemini/agents`
-- Gemini CLI skills into `~/.gemini/skills/hush-agents` and `~/.gemini/skills/readme-craft`
-- OpenCode agents into `~/.config/opencode/agents`
-- OpenCode skills into `~/.config/opencode/skills/hush-agents` and `~/.config/opencode/skills/readme-craft`
-
-Check install:
+Check the installation:
 
 ```sh
 npx hush-agents doctor
 ```
 
-Install only the reusable skill into skill-compatible harnesses:
+The installer adds:
+
+| Harness | Agents | Skills |
+|---|---|---|
+| Codex | `~/.codex/agents` | `hush-agents`, `readme-craft` |
+| Claude Code | `~/.claude/agents` | `hush-agents`, `readme-craft` |
+| Gemini CLI | `~/.gemini/agents` | `hush-agents`, `readme-craft` |
+| OpenCode | `~/.config/opencode/agents` | `hush-agents`, `readme-craft` |
+
+Install only the workflow skill with `skills`:
 
 ```sh
 npx skills add rhyumiranda/hush-agents --skill hush-agents
 ```
 
-## Use
+## First Run
 
-In any supported harness, call the agents by name:
-
-```text
-@fable turn this PRD into requirements
-@rook make the task graph
-@flint implement T-01
-@puck verify the frozen candidate
-@vera align code to requirements
-@hush decide the next route
-```
-
-If Claude Code only shows `general-purpose`, run `npx hush-agents install` again. That means Claude does not see the custom `.md` agents yet.
-
-Use the skill when you want the whole workflow explained or applied:
+Give the crew a PRD or product intent in your harness:
 
 ```text
-$hush-agents run this PRD through the loop
-$readme-craft improve this README for a new user
+@fable turn this PRD into clear, traceable requirements
+@rook split the requirements into dependency-aware tasks
+@flint implement task T-01 in its assigned worktree
+@puck verify the frozen candidate independently
+@vera compare the implementation with the approved requirements
+@hush route the next step and accept only when the evidence is complete
 ```
 
-## Runtime Foundation
+Or invoke the full workflow skill:
 
-`hush-agents` now includes the first runtime pieces:
+```text
+$hush-agents run this PRD through the implementation and verification loop
+```
 
-- `validate-packet <packet.json>` checks sealed packet integrity
-- packet digests use canonical JSON with `digest` omitted
-- invalid packets return stable JSON with `status`, `issue.field`, and `issue.rule`
-- append-only state helpers write JSONL under `.hush/runs/<run_id>/events.jsonl`
-- Flint can use hash-anchored reads and edits that reject stale files before changing code
-- Hush tracks pre-integration evidence and targeted final rechecks
+The useful result is not just passing tests. You get a chain of evidence:
+requirements, task graph, immutable packet, implementation report, verification
+report, alignment report, and acceptance record.
 
-Example:
+## The Crew
+
+| Agent | Responsibility | Boundary |
+|---|---|---|
+| **Fable** | Turns intent into requirements and preserves unknowns. | Does not implement. |
+| **Rook** | Maps requirements to code surfaces and safe task batches. | Blocks unsafe parallel work. |
+| **Flint** | Implements one scoped task in one worktree. | Does not grade its own work. |
+| **Puck** | Tests the frozen candidate independently. | Does not patch code. |
+| **Vera** | Compares lifted behavior with approved requirements. | Does not patch code. |
+| **Hush** | Owns packets, state, routing, worktrees, retries, and acceptance. | Accepts only valid evidence. |
+
+## How It Works
+
+1. **Fable** gives requirements stable IDs and records ambiguity.
+2. **Rook** builds a dependency graph and marks tasks that can run in parallel.
+3. **Hush** issues one immutable packet per task.
+4. **Flint** edits only its allowed surfaces in an isolated worktree.
+5. **Hush** freezes the candidate snapshot.
+6. **Puck** checks behavior; **Vera** checks alignment when required.
+7. Independent tasks continue in parallel. Shared files, migrations, auth,
+   global state, and shared fixtures stay ordered.
+8. **Hush** integrates once at the PR boundary and reruns only checks affected
+   by changed behavior or dependencies.
+
+If a gate fails, the smallest proven fix is made and only the affected gate is
+rerun. A clean rebase does not automatically invalidate evidence when the patch
+and affected dependencies are unchanged.
+
+## Runtime Commands
+
+The package includes packet, state, and hash-anchored editing foundations:
 
 ```sh
 hush-agents validate-packet packet.json
-
 hush-agents hashline-read src/file.js
 hush-agents hashline-patch src/file.js patch.json --dry-run
 ```
 
-## Why It Works
+`validate-packet` checks packet shape, digest, scope, target agent, dependencies,
+and status context. Hashline editing rejects stale reads before writing. Runtime
+events are append-only under `.hush/runs/<run_id>/events.jsonl`.
 
-Most AI coding fails from mixed roles.
+## Evidence
 
-One agent writes code.
-The same agent says it is fine.
-Nobody checks whether the code still means what the PRD meant.
+The live shipping sample demonstrates the full loop:
 
-Hush Agents separates the jobs.
-
-Small roles. Hard gates. Better evidence.
-
-## Proof
-
-We tested the crew on a sample shipping project:
-
-- Fable found unknowns.
+- Fable found an ambiguous `zone` contract.
 - Rook made one safe task.
 - Flint changed only `src/shipping.js`.
-- Puck blocked bad packet digests until Hush fixed them.
-- Puck verified exact outputs.
-- Vera matched code back to requirements.
+- Puck independently checked exact outputs and packet integrity.
+- Vera matched lifted code behavior back to the requirements.
+- Hush accepted only after `VERIFIED` and `ALIGNED` results.
 
-Final result: Puck `VERIFIED`, Vera `ALIGNED`, Hush accepted.
+Read the [runtime report](docs/live-agent-shipping-runtime-report.md).
 
-See [`docs/live-agent-shipping-runtime-report.md`](docs/live-agent-shipping-runtime-report.md).
+## Current Scope
 
-## Not Magic
+This package ships agent profiles for Codex, Claude Code, Gemini CLI, and
+OpenCode, plus the `hush-agents` and `readme-craft` skills and runtime
+foundations for packets, state, and hashline edits.
 
-This package gives you Codex, Claude Code, Gemini CLI, and OpenCode profiles, plus a workflow skill and the first packet/state runtime foundation.
-
-It does not yet ship the full Hush runtime. Warm worktree bases, scheduler, merge queue, and full run commands are next.
+It does not yet ship a complete scheduler, warm worktree base, merge queue, or
+single-command end-to-end runner.
 
 ## License
 
