@@ -215,6 +215,69 @@
     "focus": "Use a visible 2px ink focus ring with 2px offset.",
     "motion": "Respect prefers-reduced-motion."
   },
+  "banner": {
+    "name": "The Build Site",
+    "creative_direction": "A friendly hand-inked construction crew turns a product blueprint into a finished, inspected building.",
+    "single_glance_message": "Hush Agents turns a PRD into code through coordinated building and independent inspection.",
+    "metaphor": {
+      "prd": "blueprint on a drafting table",
+      "fable": "architect holding the blueprint",
+      "rook": "foreman pointing at the construction plan",
+      "flint": "three builders working in separate work areas",
+      "puck": "building inspector testing the structure",
+      "vera": "compliance inspector comparing the building with the blueprint",
+      "hush": "site supervisor at the central gate",
+      "pr": "finished building with an approval sign"
+    },
+    "story_beats": [
+      "Blueprint enters from the left.",
+      "The plan becomes several clearly separated work areas.",
+      "Builders work in parallel without touching each other's areas.",
+      "The structures reunite as one candidate building.",
+      "Two inspectors independently examine the result.",
+      "The supervisor either points back to a targeted repair or opens the final gate."
+    ],
+    "composition": {
+      "format": "wide horizontal banner",
+      "aspect_ratio": "16:6",
+      "recommended_size": "1600x600",
+      "reading_direction": "left to right",
+      "foreground": "six simple human figures with distinctive tools and roles",
+      "background": "quiet paper-colored construction site with sparse ink marks",
+      "center_of_attention": "the two inspectors and the Hush approval gate",
+      "negative_space": "generous around the title and between work areas",
+      "text_limit": "title plus one short supporting sentence; no paragraphs"
+    },
+    "visual_language": {
+      "line": "rough black ink with pressure variation and imperfect edges",
+      "palette": "ink black, warm paper, muted gray wash, one restrained signal color",
+      "figures": "friendly, simplified people with expressive posture rather than detailed faces",
+      "tools": ["blueprint", "pencil", "clipboard", "hammer", "wrench", "magnifying glass", "inspection stamp"],
+      "depth": "flat editorial illustration with slight overlapping paper layers",
+      "texture": "subtle paper grain and dry-brush noise",
+      "lighting": "none; rely on ink weight and overlap"
+    },
+    "recommended_copy": {
+      "eyebrow": "A coordinated crew for AI engineering",
+      "title": "Build from the blueprint. Ship with proof.",
+      "supporting": "Fable plans. Rook divides. Flint builds. Puck and Vera inspect. Hush decides."
+    },
+    "alternative_copy": [
+      "Your PRD is the blueprint. Hush runs the build site.",
+      "Parallel builders. Independent inspectors. One trusted handoff.",
+      "From product intent to code, with someone checking the work."
+    ],
+    "generation_prompt": "Create a wide 16:6 editorial banner in the Hush Agents ink-on-paper style. Show a friendly construction crew transforming a blueprint into a finished building. On the left, an architect presents a blueprint labeled PRD. A foreman divides it into three separate work areas. Three builders labeled Flint work in parallel, each in a distinct area. Their work reunites into one building. Two independent inspectors stand beside it: Puck tests the structure with a clipboard and tools; Vera compares it against the blueprint with a ruler and inspection sheet. A calm site supervisor labeled Hush stands at a gate with two outcomes: a small arrow back to targeted repair, and a clear approval path toward a finished building marked PR. Use rough black ink, warm paper, sparse gray wash, imperfect hand-drawn lines, simple expressive people, generous whitespace, and clear left-to-right storytelling. Make the workflow understandable without reading long text. Include only the title 'Build from the blueprint. Ship with proof.' and the short line 'Parallel builders. Independent inspectors. One trusted handoff.'",
+    "negative_prompt": "No pirate theme, no ship, no fantasy armor, no corporate stock illustration, no photorealism, no glossy 3D, no gradients, no busy dashboard, no tiny paragraphs, no tangled arrows, no excessive labels, no polished vector perfection, no extra metrics, no illegible text, no cropped figures.",
+    "delivery": {
+      "primary": "1600x600 PNG",
+      "retina": "3200x1200 PNG",
+      "transparent_variant": "optional transparent PNG with no paper background",
+      "safe_area": "Keep all text and figures inside 8% horizontal and 10% vertical margins.",
+      "readme_usage": "Place below the project tagline and above installation instructions.",
+      "alt_text": "A construction crew turns a PRD blueprint into code while independent inspectors verify the result before Hush approves the pull request."
+    }
+  },
   "implementation_notes": {
     "most_important_rule": "The interface should feel precise underneath and human on top.",
     "calibration": "The reference image defines the illustration language, not exact UI dimensions or typography.",
