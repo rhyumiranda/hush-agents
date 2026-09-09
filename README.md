@@ -1,6 +1,15 @@
-# Hush Agents
+<h1 align="center">Hush Agents</h1>
 
-**Turn a PRD into code without letting one agent grade its own homework.**
+<p align="center">
+  Turn a PRD into code without letting one agent grade its own homework.
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/hush-agents"><img src="https://img.shields.io/npm/v/hush-agents?style=flat-square" alt="Latest npm version"></a>
+  <a href="https://www.npmjs.com/package/hush-agents"><img src="https://img.shields.io/node/v/hush-agents?style=flat-square" alt="Supported Node.js version"></a>
+  <a href="https://github.com/rhyumiranda/hush-agents/stargazers"><img src="https://img.shields.io/github/stars/rhyumiranda/hush-agents?style=flat-square" alt="GitHub stars"></a>
+  <a href="https://github.com/rhyumiranda/hush-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/rhyumiranda/hush-agents?style=flat-square" alt="MIT license"></a>
+</p>
 
 Hush Agents is a multi-harness crew for turning product intent into scoped
 implementation, independent verification, and requirement alignment.
