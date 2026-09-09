@@ -1,76 +1,39 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://hush-agents.local/schemas/packet.schema.json",
-  "title": "Hush Runtime Packet",
+  "title": "Hush Evidence Contract v1 Packet",
   "type": "object",
   "additionalProperties": true,
-  "required": [
-    "run_id",
-    "task_id",
-    "packet_id",
-    "packet_revision",
-    "target_agent",
-    "base_sha",
-    "requirements",
-    "allowed_paths",
-    "allowed_operations",
-    "blocked_paths",
-    "required_commands",
-    "expected_evidence",
-    "vera_required",
-    "expires_at",
-    "supersedes",
-    "digest"
-  ],
+  "required": ["contract_version", "run_id", "plan_id", "task_id", "packet_id", "packet_revision", "requirement_map_revision", "target_agent", "base_sha", "source_refs", "requirements", "allowed_paths", "write_paths", "allowed_operations", "blocked_paths", "exclusive_hubs", "dependencies", "required_commands", "acceptance_checks", "expected_evidence", "environment", "vera_required", "vera_trigger", "attempt", "strike_count", "expires_at", "supersedes", "packet_state", "digest"],
   "properties": {
+    "contract_version": { "const": "hec.v1" },
     "run_id": { "type": "string", "minLength": 1 },
+    "plan_id": { "type": "string", "minLength": 1 },
     "task_id": { "type": "string", "minLength": 1 },
     "packet_id": { "type": "string", "minLength": 1 },
     "packet_revision": { "type": "integer", "minimum": 1 },
+    "requirement_map_revision": { "type": "integer", "minimum": 1 },
     "target_agent": { "type": "string", "minLength": 1 },
     "base_sha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
-    "requirements": {
-      "type": "array",
-      "minItems": 1,
-      "items": { "type": "string", "minLength": 1 }
-    },
-    "allowed_paths": {
-      "type": "array",
-      "minItems": 1,
-      "items": { "type": "string", "minLength": 1 }
-    },
-    "allowed_operations": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "string",
-        "enum": ["create", "edit", "modify", "delete", "rename"]
-      }
-    },
-    "blocked_paths": {
-      "type": "array",
-      "items": { "type": "string", "minLength": 1 }
-    },
-    "required_commands": {
-      "type": "array",
-      "minItems": 1,
-      "items": { "type": "string", "minLength": 1 }
-    },
-    "expected_evidence": {
-      "type": "array",
-      "items": { "type": "string", "minLength": 1 }
-    },
+    "source_refs": { "type": "array", "minItems": 1 },
+    "requirements": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "allowed_paths": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "write_paths": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "allowed_operations": { "type": "array", "minItems": 1, "items": { "enum": ["create", "edit", "modify", "delete", "rename", "read", "test"] } },
+    "blocked_paths": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "exclusive_hubs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "dependencies": { "type": "array" },
+    "required_commands": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "acceptance_checks": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["check_id", "requirement_ids", "write_paths", "executor", "command", "expected_result", "evidence_artifact_id"] } },
+    "expected_evidence": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "environment": { "type": "object" },
     "vera_required": { "type": "boolean" },
-    "expires_at": {
-      "anyOf": [
-        { "type": "null" },
-        { "type": "string", "format": "date-time" }
-      ]
-    },
-    "supersedes": {
-      "type": "array",
-      "items": { "type": "string", "minLength": 1 }
-    },
+    "vera_trigger": { "type": ["string", "null"] },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "strike_count": { "type": "integer", "minimum": 0 },
+    "expires_at": { "type": ["string", "null"], "format": "date-time" },
+    "supersedes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "packet_state": { "enum": ["ACTIVE", "SUPERSEDED"] },
     "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
   }
 }
