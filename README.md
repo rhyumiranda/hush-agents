@@ -15,8 +15,10 @@
   <a href="https://github.com/rhyumiranda/hush-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/rhyumiranda/hush-agents?style=flat-square" alt="MIT license"></a>
 </p>
 
-Hush Agents is a multi-harness crew for turning product intent into scoped
-implementation, independent verification, and requirement alignment.
+Hush Agents installs a multi-harness crew for turning product intent into
+scoped implementation, independent verification, and requirement alignment.
+It installs the agents and runtime foundations; the full scheduler is not yet
+automatic.
 
 ## Install
 
@@ -33,6 +35,9 @@ Check the installation:
 npx hush-agents doctor
 ```
 
+You should see six bundled agents for each supported harness. Installed counts
+depend on the machine you run this on.
+
 The installer adds:
 
 | Harness | Agents | Skills |
@@ -48,7 +53,7 @@ Install only the workflow skill with `skills`:
 npx skills add rhyumiranda/hush-agents --skill hush-agents
 ```
 
-## First Run
+## Run The Workflow
 
 Give the crew a PRD or product intent in your harness:
 
@@ -70,6 +75,24 @@ $hush-agents run this PRD through the implementation and verification loop
 The useful result is not just passing tests. You get a chain of evidence:
 requirements, task graph, immutable packet, implementation report, verification
 report, alignment report, and acceptance record.
+
+## Try The Runtime
+
+Use a packet produced by Hush to check its shape and digest:
+
+```sh
+hush-agents validate-packet path/to/packet.json
+```
+
+Use hash-anchored editing when a worker must change an existing file:
+
+```sh
+hush-agents hashline-read src/file.js
+hush-agents hashline-patch src/file.js patch.json --dry-run
+```
+
+If a packet is stale, incomplete, or out of scope, the command reports the
+reason instead of silently accepting it.
 
 ## The Crew
 
@@ -99,16 +122,6 @@ If a gate fails, the smallest proven fix is made and only the affected gate is
 rerun. A clean rebase does not automatically invalidate evidence when the patch
 and affected dependencies are unchanged.
 
-## Runtime Commands
-
-The package includes packet, state, and hash-anchored editing foundations:
-
-```sh
-hush-agents validate-packet packet.json
-hush-agents hashline-read src/file.js
-hush-agents hashline-patch src/file.js patch.json --dry-run
-```
-
 `validate-packet` checks packet shape, digest, scope, target agent, dependencies,
 and status context. Hashline editing rejects stale reads before writing. Runtime
 events are append-only under `.hush/runs/<run_id>/events.jsonl`.
@@ -134,6 +147,20 @@ foundations for packets, state, and hashline edits.
 
 It does not yet ship a complete scheduler, warm worktree base, merge queue, or
 single-command end-to-end runner.
+
+## Contributing
+
+```sh
+npm test
+npm run pack:check
+npm run build:claude-agents
+```
+
+## Go Deeper
+
+- [Workflow skill](skills/hush-agents/SKILL.md)
+- [Packet schema](schemas/packet.schema.json)
+- [Live runtime report](docs/live-agent-shipping-runtime-report.md)
 
 ## License
 
