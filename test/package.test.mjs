@@ -47,6 +47,13 @@ test("ships hush-agents skill", () => {
   assert.match(skill, /Vera/);
 });
 
+test("ships readme-craft skill", () => {
+  const skill = readFileSync(join(root, "skills", "readme-craft", "SKILL.md"), "utf8");
+  assert.match(skill, /name: readme-craft/);
+  assert.match(skill, /sections proportional/);
+  assert.match(skill, /Never leave template placeholders/);
+});
+
 test("readme stays proportionate", () => {
   const readme = readFileSync(join(root, "README.md"), "utf8");
   assert.ok(readme.length < 6000);

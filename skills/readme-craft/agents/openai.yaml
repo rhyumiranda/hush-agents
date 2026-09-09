@@ -1,0 +1,4 @@
+interface:
+  display_name: "README Craft"
+  short_description: "Write clear, useful, proportionate READMEs"
+  default_prompt: "Use $readme-craft to write or improve this project README."

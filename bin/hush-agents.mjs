@@ -8,6 +8,7 @@ import { applyHashline, readHashline } from "../lib/runtime/hashline.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const home = process.env.HOME;
+const skillNames = ["hush-agents", "readme-craft"];
 
 function usage() {
   console.log(`hush-agents[3]{command,what,next}:
@@ -29,12 +30,14 @@ function copyDirFiles(src, dest, extension) {
   }
 }
 
-function copySkill(destRoot) {
-  mkdirSync(join(destRoot, "skills", "hush-agents"), { recursive: true });
-  copyFileSync(
-    join(root, "skills", "hush-agents", "SKILL.md"),
-    join(destRoot, "skills", "hush-agents", "SKILL.md"),
-  );
+function copySkills(destRoot) {
+  for (const skillName of skillNames) {
+    mkdirSync(join(destRoot, "skills", skillName), { recursive: true });
+    copyFileSync(
+      join(root, "skills", skillName, "SKILL.md"),
+      join(destRoot, "skills", skillName, "SKILL.md"),
+    );
+  }
 }
 
 function install() {
@@ -46,10 +49,10 @@ function install() {
   copyDirFiles(join(root, "agents", "claude"), join(home, ".claude", "agents"), ".md");
   copyDirFiles(join(root, "agents", "gemini"), join(home, ".gemini", "agents"), ".md");
   copyDirFiles(join(root, "agents", "opencode"), join(home, ".config", "opencode", "agents"), ".md");
-  copySkill(join(home, ".codex"));
-  copySkill(join(home, ".claude"));
-  copySkill(join(home, ".gemini"));
-  copySkill(join(home, ".config", "opencode"));
+  copySkills(join(home, ".codex"));
+  copySkills(join(home, ".claude"));
+  copySkills(join(home, ".gemini"));
+  copySkills(join(home, ".config", "opencode"));
   console.log(`installed[8]{kind,harness,path}:
   agents,codex,${join(home, ".codex", "agents")}
   skill,codex,${join(home, ".codex", "skills", "hush-agents")}
@@ -79,11 +82,13 @@ function doctor() {
   const installedOpencodeAgents = home
     ? agentNames.filter((name) => existsSync(join(home, ".config", "opencode", "agents", `${name}.md`)))
     : [];
-  const bundledSkill = existsSync(join(root, "skills", "hush-agents", "SKILL.md"));
-  const installedCodexSkill = home && existsSync(join(home, ".codex", "skills", "hush-agents", "SKILL.md"));
-  const installedClaudeSkill = home && existsSync(join(home, ".claude", "skills", "hush-agents", "SKILL.md"));
-  const installedGeminiSkill = home && existsSync(join(home, ".gemini", "skills", "hush-agents", "SKILL.md"));
-  const installedOpencodeSkill = home && existsSync(join(home, ".config", "opencode", "skills", "hush-agents", "SKILL.md"));
+  const bundledSkills = skillNames.filter((name) => existsSync(join(root, "skills", name, "SKILL.md")));
+  const installedSkills = (destRoot) =>
+    home ? skillNames.filter((name) => existsSync(join(destRoot, "skills", name, "SKILL.md"))) : [];
+  const installedCodexSkills = installedSkills(join(home, ".codex"));
+  const installedClaudeSkills = installedSkills(join(home, ".claude"));
+  const installedGeminiSkills = installedSkills(join(home, ".gemini"));
+  const installedOpencodeSkills = installedSkills(join(home, ".config", "opencode"));
   const readme = readFileSync(join(root, "README.md"), "utf8");
   console.log(`doctor:
   package: hush-agents
@@ -91,15 +96,15 @@ function doctor() {
   bundled_claude_code_agents: ${bundledClaudeAgents.length}/6
   bundled_gemini_cli_agents: ${bundledGeminiAgents.length}/6
   bundled_opencode_agents: ${bundledOpencodeAgents.length}/6
-  bundled_skill: ${bundledSkill ? "yes" : "no"}
+  bundled_skills: ${bundledSkills.length}/${skillNames.length}
   installed_codex_agents: ${installedCodexAgents.length}/6
   installed_claude_code_agents: ${installedClaudeAgents.length}/6
   installed_gemini_cli_agents: ${installedGeminiAgents.length}/6
   installed_opencode_agents: ${installedOpencodeAgents.length}/6
-  installed_codex_skill: ${installedCodexSkill ? "yes" : "no"}
-  installed_claude_code_skill: ${installedClaudeSkill ? "yes" : "no"}
-  installed_gemini_cli_skill: ${installedGeminiSkill ? "yes" : "no"}
-  installed_opencode_skill: ${installedOpencodeSkill ? "yes" : "no"}
+  installed_codex_skills: ${installedCodexSkills.length}/${skillNames.length}
+  installed_claude_code_skills: ${installedClaudeSkills.length}/${skillNames.length}
+  installed_gemini_cli_skills: ${installedGeminiSkills.length}/${skillNames.length}
+  installed_opencode_skills: ${installedOpencodeSkills.length}/${skillNames.length}
   readme_chars: ${readme.length}`);
 }
 

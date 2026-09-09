@@ -29,7 +29,7 @@ Independent tasks run in parallel. Hush integrates only when a candidate is read
 
 ## Install
 
-Install agents + skill into Codex, Claude Code, Gemini CLI, and OpenCode:
+Install agents + skills into Codex, Claude Code, Gemini CLI, and OpenCode:
 
 ```sh
 npx hush-agents install
@@ -38,13 +38,13 @@ npx hush-agents install
 This copies:
 
 - Codex agents into `~/.codex/agents`
-- Codex skill into `~/.codex/skills/hush-agents`
+- Codex skills into `~/.codex/skills/hush-agents` and `~/.codex/skills/readme-craft`
 - Claude Code agents into `~/.claude/agents`
-- Claude Code skill into `~/.claude/skills/hush-agents`
+- Claude Code skills into `~/.claude/skills/hush-agents` and `~/.claude/skills/readme-craft`
 - Gemini CLI agents into `~/.gemini/agents`
-- Gemini CLI skill into `~/.gemini/skills/hush-agents`
+- Gemini CLI skills into `~/.gemini/skills/hush-agents` and `~/.gemini/skills/readme-craft`
 - OpenCode agents into `~/.config/opencode/agents`
-- OpenCode skill into `~/.config/opencode/skills/hush-agents`
+- OpenCode skills into `~/.config/opencode/skills/hush-agents` and `~/.config/opencode/skills/readme-craft`
 
 Check install:
 
@@ -77,6 +77,7 @@ Use the skill when you want the whole workflow explained or applied:
 
 ```text
 $hush-agents run this PRD through the loop
+$readme-craft improve this README for a new user
 ```
 
 ## Runtime Foundation
