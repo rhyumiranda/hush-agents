@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { PACKET_STATUS, validatePacket } from "../lib/runtime/packet.mjs";
+import { applyHashline, readHashline } from "../lib/runtime/hashline.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const home = process.env.HOME;
@@ -13,6 +14,8 @@ function usage() {
   install,"copy Codex, Claude Code, Gemini CLI, and OpenCode agents","hush-agents doctor"
   doctor,"check package files + installed files","hush-agents install"
   validate-packet <packet.json> [context options],"validate packet shape, digest, and status","hush-agents validate-packet packet.json"
+  hashline-read <file>,"read a file with content-hashed line anchors","hush-agents hashline-read src/file.js"
+  hashline-patch <file> <patch.json> [--dry-run],"apply hash-anchored edits and reject stale reads","hush-agents hashline-patch src/file.js patch.json"
   help,"show commands","hush-agents install"`);
 }
 
@@ -176,6 +179,33 @@ function parsePacketContextArgs(args) {
   return context;
 }
 
+function hashlineReadCommand(filePath) {
+  if (!filePath) {
+    console.log(JSON.stringify({ status: "READ_ERROR", issue: { field: "path", rule: "file path is required" } }));
+    process.exit(2);
+  }
+  try {
+    console.log(JSON.stringify(readHashline(filePath)));
+  } catch (error) {
+    console.log(JSON.stringify({ status: "READ_ERROR", issue: { field: "path", rule: error.message } }));
+    process.exit(2);
+  }
+}
+
+function hashlinePatchCommand(filePath, patchPath, args) {
+  if (!filePath || !patchPath) {
+    console.log(JSON.stringify({ status: "READ_ERROR", issue: { field: "path", rule: "file and patch paths are required" } }));
+    process.exit(2);
+  }
+  try {
+    const patch = JSON.parse(readFileSync(patchPath, "utf8"));
+    console.log(JSON.stringify(applyHashline(filePath, patch, { dryRun: args.includes("--dry-run") })));
+  } catch (error) {
+    console.log(JSON.stringify({ status: "BLOCKED", issue: { field: "edit", rule: error.message } }));
+    process.exit(1);
+  }
+}
+
 function parseOption(arg) {
   const separator = arg.indexOf("=");
   if (separator === -1) return { name: arg, value: undefined };
@@ -200,9 +230,11 @@ const command = process.argv[2] ?? "help";
 if (command === "install") install();
 else if (command === "doctor") doctor();
 else if (command === "validate-packet") validatePacketCommand(process.argv[3], process.argv.slice(4));
+else if (command === "hashline-read") hashlineReadCommand(process.argv[3]);
+else if (command === "hashline-patch") hashlinePatchCommand(process.argv[3], process.argv[4], process.argv.slice(5));
 else if (command === "help" || command === "--help" || command === "-h") usage();
 else {
   console.log(`error: unknown command ${command}
-help: valid commands are install, doctor, validate-packet, help`);
+help: valid commands are install, doctor, validate-packet, hashline-read, hashline-patch, help`);
   process.exit(2);
 }

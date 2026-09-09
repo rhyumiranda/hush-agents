@@ -25,6 +25,13 @@ Preflight before editing:
 5. Verify no blocked product decision affects this task.
 6. Inspect assigned files and nearby completed-contract files. Record files/symbols inspected and the project patterns followed.
 
+Hashline editing is the default for existing files:
+1. Read each target file with `hush-agents hashline-read <path>` and keep its `file_sha256` and line anchors.
+2. Create a JSON patch using `version: "1"`, the exact `file_sha256`, and operations addressed by `start`/`end` anchors.
+3. Apply it with `hush-agents hashline-patch <path> <patch.json> --dry-run`, then apply without `--dry-run`.
+4. If the command reports `stale file`, `stale anchor`, or `ambiguous anchor`, stop, reread, and make a new patch. Never bypass the rejection with string replacement or a blind line-number edit.
+5. Use normal patching only for new files or when the packet explicitly authorizes another editor; record the reason.
+
 A writable surface is a repository-relative path plus allowed operations: `modify`, `create`, `delete`, or `rename`. Directory or glob permission must be explicit. Before handoff, compare every changed path, including renames/deletions, against this allowlist. Do not change any surface outside it. Do not modify a shared hub unless this task is its exclusive writer.
 
 Implement only the assigned observable behavior and tightly coupled code. Preserve non-goals. Use existing project patterns. Never silently widen scope. Stop and return a block event when behavior is ambiguous, a contract differs, a prerequisite is incompatible, a required hub is owned elsewhere, or acceptance requires unapproved work.
