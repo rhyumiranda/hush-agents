@@ -56,6 +56,59 @@ Use the matching route as a guide, not a mandatory checklist:
 Combine routes when needed. A monorepo containing a CLI should explain the
 repository map first, then link to the CLI's own first-use path.
 
+## Badge Design
+
+Treat badges as a compact trust layer below the project identity. Add one only
+when it answers a real reader question and the repository can verify its value.
+
+Choose from these groups:
+
+- **Trust:** current release/version, build or test status, license, supported
+  runtime, and package metadata.
+- **Community:** stars, downloads, Discord, discussions, sponsors, or funding
+  when that community signal is established and useful.
+- **Proof:** a linked demo, benchmark, compatibility result, or project-specific
+  metric when its source, date, and meaning are clear.
+
+Use three to six high-signal badges by default. A small project may need only a
+version and license badge. A mature project may earn more. Never use stars,
+downloads, or made-up static numbers as proof that the software works.
+
+For GitHub or npm READMEs, a centered HTML header is appropriate when it makes
+the project easier to recognize and still renders acceptably as plain Markdown:
+
+```html
+<p align="center">
+  <a href="https://github.com/OWNER/REPO">
+    <img src="https://raw.githubusercontent.com/OWNER/REPO/main/path/to/logo.svg" alt="Project logo" width="160">
+  </a>
+</p>
+<h1 align="center">Project name</h1>
+<p align="center">One concrete sentence about the useful outcome.</p>
+<p align="center">
+  <a href="https://github.com/OWNER/REPO/releases">
+    <img src="https://img.shields.io/github/v/release/OWNER/REPO" alt="Latest release">
+  </a>
+  <a href="https://github.com/OWNER/REPO/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/OWNER/REPO/WORKFLOW.yml?branch=main" alt="Build status">
+  </a>
+  <a href="https://github.com/OWNER/REPO/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/OWNER/REPO" alt="License">
+  </a>
+</p>
+```
+
+Replace every placeholder and remove any badge whose source does not exist.
+Link each badge to the page that explains or verifies it. Give every image
+useful `alt` text; add `title` text when the metric needs context. Prefer
+dynamic provider badges over hand-edited numbers. Do not add CI, coverage,
+downloads, benchmark, community, or sponsor badges just because the format is
+available. If a repository has no workflow or metric, leave that badge out.
+
+The opening should still work when images fail: name, promise, install command,
+and first example must carry the README. Keep generated badge blocks stable and
+small; do not let them push the first useful action below the fold.
+
 ## Write In Reader Order
 
 Use the smallest structure that answers these questions in order:
@@ -102,6 +155,8 @@ explaining every option.
 - Be honest about alpha status, missing features, platform limits, and unsafe or
   destructive commands.
 - Use badges sparingly and only for current, verifiable status.
+- Keep badges near the identity, before the first useful command; never use them
+  to hide an unclear project promise.
 - Never leave template placeholders, empty sections, fake contact details, or
   generic marketing copy.
 

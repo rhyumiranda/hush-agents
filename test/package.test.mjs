@@ -51,6 +51,8 @@ test("ships readme-craft skill", () => {
   const skill = readFileSync(join(root, "skills", "readme-craft", "SKILL.md"), "utf8");
   assert.match(skill, /name: readme-craft/);
   assert.match(skill, /sections proportional/);
+  assert.match(skill, /Badge Design/);
+  assert.match(skill, /Replace every placeholder/);
   assert.match(skill, /Never leave template placeholders/);
 });
 
