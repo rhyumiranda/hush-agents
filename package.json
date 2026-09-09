@@ -11,6 +11,7 @@
     "skills",
     "bin",
     "lib",
+    "lib/runtime/environment.mjs",
     "schemas",
     "scripts",
     "docs",

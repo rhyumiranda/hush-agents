@@ -14,24 +14,41 @@ import {
 } from "../lib/runtime/packet.mjs";
 
 const root = new URL("..", import.meta.url).pathname;
+const hazards = [
+  ["database", "ephemeral-test-only"], ["credentials", "fake-only"], ["email", "sink-only"],
+  ["webhooks", "disabled"], ["uploads", "disabled"], ["network", "disabled"],
+].map(([category, policy], index) => ({ hazard_id: `HAZ-${index}`, repository: "packet-test", category, policy, status: "MITIGATED", evidence: "fixture" }));
 
 function basePacket() {
   return sealPacket({
+    contract_version: "hec.v1",
     run_id: "RUN-HUSH-RUNTIME-OPT-001",
+    plan_id: "PLAN-HUSH-RUNTIME-001",
     task_id: "T-01",
     packet_id: "PKT-T01-R1",
     packet_revision: 1,
+    requirement_map_revision: 1,
     target_agent: "flint",
     base_sha: "b205ad1b2e1dada14e2c6380561c1204d783c518",
+    source_refs: [{ snapshot_id: "SRC-001", manifest_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", location: "prd.md:1" }],
     requirements: ["R-01", "R-02"],
     allowed_paths: ["lib/runtime/packet.mjs", "schemas/packet.schema.json", "test/packet.test.mjs"],
+    write_paths: ["lib/runtime/packet.mjs", "schemas/packet.schema.json"],
     allowed_operations: ["create", "edit"],
     blocked_paths: ["bin/hush-agents.mjs", "package.json", "README.md"],
+    exclusive_hubs: ["packet-contract"],
+    dependencies: [],
     required_commands: ["node --test test/packet.test.mjs"],
+    acceptance_checks: [{ check_id: "CHK-01", requirement_ids: ["R-01"], write_paths: ["lib/runtime/packet.mjs", "schemas/packet.schema.json"], evidence_artifact_id: "ART-CHK-01", executor: "puck", command: "node --test", expected_result: "exit 0" }],
     expected_evidence: ["test output", "changed surfaces", "revision SHA"],
+    environment: { network: "disabled", database: "ephemeral-test-only", credentials: "fake-only", email: "sink-only", webhooks: "disabled", uploads: "disabled", test_data: "generated", cleanup: ["remove test artifacts"], hazards },
     vera_required: true,
+    vera_trigger: "contract alignment required",
+    attempt: 1,
+    strike_count: 0,
     expires_at: null,
     supersedes: [],
+    packet_state: "ACTIVE",
   });
 }
 
@@ -45,7 +62,7 @@ test("canonical packet JSON sorts object keys and omits digest", () => {
   assert.equal(computePacketDigest(packet), packet.digest);
 });
 
-test("sample T-01 packet digest matches packet artifact", () => {
+test("legacy sample T-01 packet is rejected by the strict contract", () => {
   const packet = JSON.parse(
     readFileSync(
       "/Users/rhyu/Documents/Codex/2026-09-03/i-want-you-to-look-for/outputs/hush-runtime-packets/PKT-T01-R1.json",
@@ -54,7 +71,8 @@ test("sample T-01 packet digest matches packet artifact", () => {
   );
 
   assert.equal(computePacketDigest(packet), packet.digest);
-  assert.equal(validatePacket(packet).status, PACKET_STATUS.VALID);
+  assert.equal(validatePacket(packet).status, PACKET_STATUS.INVALID_SHAPE);
+  assert.equal(validatePacket(packet).issue.field, "contract_version");
 });
 
 test("field mutation breaks digest", () => {
@@ -189,8 +207,8 @@ test("schema artifact lists required packet fields", () => {
 });
 
 test("validate-packet CLI prints machine-readable valid status", () => {
-  const packetPath =
-    "/Users/rhyu/Documents/Codex/2026-09-03/i-want-you-to-look-for/outputs/hush-runtime-packets/PKT-T01-R1.json";
+  const packetPath = join(mkdtempSync(join(tmpdir(), "hush-packet-valid-")), "packet.json");
+  writeFileSync(packetPath, JSON.stringify(basePacket()));
   const result = spawnSync(process.execPath, [join(root, "bin", "hush-agents.mjs"), "validate-packet", packetPath], {
     cwd: root,
     encoding: "utf8",
