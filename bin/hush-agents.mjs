@@ -22,6 +22,7 @@ function usage() {
   console.log(`hush-agents[3]{command,what,next}:
   install [--agents <list>],"copy selected agents to Codex, Claude Code, Gemini CLI, and OpenCode","hush-agents doctor"
   list-agents,"show available agents","hush-agents install --agents fable,rook"
+  codex-register [--agents <list>] [--dry-run],"register selected agents as native Codex roles","hush-agents codex-register --agents fable,rook"
   doctor,"check package files + installed files","hush-agents install"
   validate-packet <packet.json> [context options],"validate packet shape, digest, and status","hush-agents validate-packet packet.json"
   hashline-read <file>,"read a file with content-hashed line anchors","hush-agents hashline-read src/file.js"
@@ -144,6 +145,86 @@ function parseInstallArgs(args) {
 
 function listAgents() {
   console.log(agentNames.join("\n"));
+}
+
+function codexHomePath() {
+  if (process.env.CODEX_HOME) return process.env.CODEX_HOME;
+  if (!home) return undefined;
+  return join(home, ".codex");
+}
+
+function upsertTomlSection(source, section, entries) {
+  const newline = source.includes("\r\n") ? "\r\n" : "\n";
+  const lines = source ? source.split(/\r?\n/) : [];
+  if (lines.at(-1) === "") lines.pop();
+  const header = `[${section}]`;
+  let headerIndex = lines.findIndex((line) => line.trim() === header);
+  if (headerIndex === -1) {
+    if (lines.length && lines.at(-1).trim() !== "") lines.push("");
+    lines.push(header, ...entries);
+    return `${lines.join(newline)}${newline}`;
+  }
+
+  let end = lines.findIndex((line, index) => index > headerIndex && /^\s*\[[^\]]+\]\s*$/.test(line));
+  if (end === -1) end = lines.length;
+  for (const entry of entries) {
+    const key = entry.slice(0, entry.indexOf(" = "));
+    const keyIndex = lines.findIndex((line, index) => index > headerIndex && index < end && new RegExp(`^\\s*${key.replace(/[.*+?^${}()|[\\]\\]/g, "\\\\$&")}\\s*=`).test(line));
+    if (keyIndex === -1) {
+      lines.splice(end, 0, entry);
+      end += 1;
+    } else {
+      lines[keyIndex] = entry;
+    }
+  }
+  return `${lines.join(newline)}${newline}`;
+}
+
+function parseCodexRegisterArgs(args) {
+  let dryRun = false;
+  const selectionArgs = [];
+  for (const arg of args) {
+    if (arg === "--dry-run") dryRun = true;
+    else selectionArgs.push(arg);
+  }
+  return { ...parseInstallArgs(selectionArgs), dryRun };
+}
+
+function registerCodexAgents(args = []) {
+  const options = parseCodexRegisterArgs(args);
+  if (options.listOnly) {
+    listAgents();
+    return;
+  }
+  const codexHome = codexHomePath();
+  if (!codexHome) {
+    console.log("error: HOME or CODEX_HOME is not set");
+    process.exit(1);
+  }
+
+  const configPath = join(codexHome, "config.toml");
+  const existing = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
+  let next = upsertTomlSection(existing, "features", ["multi_agent = true"]);
+  next = upsertTomlSection(next, "agents", ["enabled = true"]);
+  for (const name of options.agents) {
+    const profilePath = `agents/${name}.toml`;
+    const profile = readFileSync(join(root, "agents", `${name}.toml`), "utf8");
+    const description = readTomlString(profile, "description");
+    next = upsertTomlSection(next, `agents.${name}`, [
+      `description = ${JSON.stringify(description)}`,
+      `config_file = ${JSON.stringify(profilePath)}`,
+    ]);
+  }
+
+  const changed = next !== existing;
+  if (changed && !options.dryRun) {
+    mkdirSync(codexHome, { recursive: true });
+    writeFileSync(configPath, next);
+  }
+  console.log(`codex_register{status,config,agents,changed}:
+  ${options.dryRun ? "DRY_RUN" : "REGISTERED"},${configPath},${options.agents.join("|")},${changed}
+help[1]:
+  restart Codex to reload native agent roles`);
 }
 
 function install(args = []) {
@@ -466,6 +547,10 @@ if (command === "install") {
   catch (error) { console.log(`error: ${error.message}`); process.exit(2); }
 }
 else if (command === "list-agents") listAgents();
+else if (command === "codex-register") {
+  try { registerCodexAgents(process.argv.slice(3)); }
+  catch (error) { console.log(`error: ${error.message}`); process.exit(2); }
+}
 else if (command === "doctor") doctor();
 else if (command === "validate-packet") validatePacketCommand(process.argv[3], process.argv.slice(4));
 else if (command === "hashline-read") hashlineReadCommand(process.argv[3]);
@@ -493,6 +578,6 @@ else if (["merge-enqueue", "merge-status", "merge-process", "merge-abort"].inclu
 else if (command === "help" || command === "--help" || command === "-h") usage();
 else {
   console.log(`error: unknown command ${command}
- help: valid commands are install, doctor, validate-packet, hashline-read, hashline-patch, run-state, schedule, schedule-once, recover, observe-capacity, watch, pause, resume, replay, verify-write-paths, render-pr, worktree-create, worktree-warm, worktree-allocate, worktree-release, worktree-list, merge-enqueue, merge-status, merge-process, merge-abort, help`);
+ help: valid commands are install, list-agents, codex-register, doctor, validate-packet, hashline-read, hashline-patch, run-state, schedule, schedule-once, recover, observe-capacity, watch, pause, resume, replay, verify-write-paths, render-pr, worktree-create, worktree-warm, worktree-allocate, worktree-release, worktree-list, merge-enqueue, merge-status, merge-process, merge-abort, help`);
   process.exit(2);
 }
