@@ -7,6 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { replayRunState } from "../lib/runtime/state.mjs";
+import { listWorktrees } from "../lib/runtime/worktree.mjs";
 
 const runner = join(process.cwd(), "bin", "hush-agents.mjs");
 
@@ -127,6 +128,7 @@ test("runner dispatches independent tasks concurrently and delivers every candid
     assert.ok(matching);
     assert.equal(existsSync(join(integrationRoot, matching, `result-${index}.txt`)), true);
   }
+  assert.equal(listWorktrees(fixture.repo).filter((worktree) => worktree.state === "DESTROYED").length, fixture.taskCount);
 });
 
 test("runner resumes after the parent process is killed during parallel adapter execution", () => {
@@ -142,4 +144,5 @@ test("runner resumes after the parent process is killed during parallel adapter 
   const state = replayRunState(fixture.repo, runIds[0]);
   assert.equal(Object.values(state.entities.task).every((task) => task.status === "ACCEPTED"), true);
   assert.equal(Object.values(state.entities.task).some((task) => task.attempt > 1), true);
+  assert.equal(listWorktrees(fixture.repo).some((worktree) => worktree.state === "ALLOCATED"), false);
 });

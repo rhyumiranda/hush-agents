@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -8,7 +8,7 @@ import test from "node:test";
 import { sealPacket } from "../lib/runtime/packet.mjs";
 import { persistHazardInventory } from "../lib/runtime/environment.mjs";
 import { appendStateEvent, replayRunState } from "../lib/runtime/state.mjs";
-import { allocateWorktree, createWorktree, invalidateWarmBases, recoverExpiredWorktreeLeases, releaseWorktree, validateWorktree, warmWorktree } from "../lib/runtime/worktree.mjs";
+import { allocateWorktree, cleanupWorktree, createWorktree, invalidateWarmBases, recoverExpiredWorktreeLeases, releaseWorktree, validateWorktree, warmWorktree } from "../lib/runtime/worktree.mjs";
 
 function git(repo, ...args) { return execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim(); }
 function fixture() {
@@ -77,6 +77,37 @@ test("dirty release blocks and cleanup removes only released Hush worktrees", ()
   assert.equal(releaseWorktree({ root: repo, runId: "RUN-WTB", worktreeId: cleanLease.worktree_id, cleanup: true }).status, "DESTROYED");
 });
 
+test("cleanup accepts a committed candidate head and removes the worktree", () => {
+  const { repo, baseSha, profile, packet } = fixture();
+  seedRun(repo);
+  warmWorktree({ repo, baseSha, runId: "RUN-WTB", taskId: "TASK-COMMIT", profile, packet });
+  const lease = allocateWorktree({ root: repo, repo, runId: "RUN-WTB", taskId: "TASK-COMMIT", packet });
+  writeFileSync(join(lease.absolute_path, "README.md"), "candidate\n");
+  git(lease.absolute_path, "add", "README.md");
+  git(lease.absolute_path, "commit", "-m", "feat: commit candidate");
+  const candidateHead = git(lease.absolute_path, "rev-parse", "HEAD");
+  const released = releaseWorktree({ root: repo, runId: "RUN-WTB", worktreeId: lease.worktree_id, cleanup: true, expectedHead: candidateHead });
+  assert.equal(released.status, "DESTROYED");
+  assert.equal(released.worktree.state, "DESTROYED");
+  assert.equal(existsSync(lease.absolute_path), false);
+});
+
+test("cleanup removes clean setup failures but preserves dirty ones", () => {
+  const { repo, baseSha } = fixture();
+  seedRun(repo);
+  const clean = createWorktree({ repo, baseSha, runId: "RUN-WTB", taskId: "TASK-CLEAN" });
+  const removed = cleanupWorktree({ root: repo, runId: "RUN-WTB", worktreeId: clean.worktree_id, expectedHead: baseSha });
+  assert.equal(removed.status, "DESTROYED");
+  assert.equal(existsSync(clean.absolute_path), false);
+
+  const dirty = createWorktree({ repo, baseSha, runId: "RUN-WTB", taskId: "TASK-DIRTY" });
+  writeFileSync(join(dirty.absolute_path, "setup-output.txt"), "failed setup\n");
+  const blocked = cleanupWorktree({ root: repo, runId: "RUN-WTB", worktreeId: dirty.worktree_id, expectedHead: baseSha });
+  assert.equal(blocked.status, "BLOCKED");
+  assert.equal(blocked.code, "WORKTREE_DIRTY");
+  assert.equal(existsSync(dirty.absolute_path), true);
+});
+
 test("invalidates warm bases when source head changes", () => {
   const { repo, baseSha, profile, packet } = fixture();
   seedRun(repo);
@@ -97,5 +128,19 @@ test("turns an expired worktree lease into a durable block", () => {
   const recovered = recoverExpiredWorktreeLeases(repo, "RUN-WTB", { now: "2026-09-10T00:01:00.000Z" });
   assert.equal(recovered.length, 1);
   assert.equal(recovered[0].worktree_id, lease.worktree_id);
+  assert.equal(recovered[0].state, "DESTROYED");
+  assert.equal(existsSync(lease.absolute_path), false);
+});
+
+test("preserves an expired worktree when its contents changed", () => {
+  const { repo, baseSha, profile, packet } = fixture();
+  seedRun(repo);
+  warmWorktree({ repo, baseSha, runId: "RUN-WTB", taskId: "TASK-EXPIRED", profile, packet });
+  const lease = allocateWorktree({ root: repo, repo, runId: "RUN-WTB", taskId: "TASK-EXPIRED", packet, leaseMs: 10, now: "2026-09-10T00:00:00.000Z" });
+  writeFileSync(join(lease.absolute_path, "unreviewed.txt"), "changed\n");
+  const recovered = recoverExpiredWorktreeLeases(repo, "RUN-WTB", { now: "2026-09-10T00:01:00.000Z" });
+  assert.equal(recovered[0].state, "BLOCKED");
   assert.equal(recovered[0].block_reason, "WORKTREE_LEASE_EXPIRED");
+  assert.equal(recovered[0].cleanup_block_reason, "WORKTREE_DIRTY");
+  assert.equal(existsSync(lease.absolute_path), true);
 });
