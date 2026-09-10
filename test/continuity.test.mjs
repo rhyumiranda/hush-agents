@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,11 +13,12 @@ import { validateRequirementRecord } from "../lib/runtime/requirements.mjs";
 import { capacityPolicy } from "../lib/runtime/scheduler.mjs";
 import { appendStateEvent, readStateEvents } from "../lib/runtime/state.mjs";
 import { createMutationEvidence, mutationPolicyForRequirements, recordMutationEvidence, runStrykerPolicy, runVeraShell, summarizeStrykerReport, validateMutationPolicy, validateMutationReport, validateVeraShellCommand } from "../lib/runtime/verification.mjs";
-import { pauseRun, replayRun, resumeRun, scheduleDurableTimer, watchOnce, writeCursor } from "../lib/runtime/watcher.mjs";
+import { drainRun, pauseRun, replayRun, resumeRun, scheduleDurableTimer, watchOnce, watchRun, writeCursor } from "../lib/runtime/watcher.mjs";
 
 const now = "2026-09-10T02:00:00.000Z";
 const root = () => mkdtempSync(join(tmpdir(), "hush-continuity-"));
 const sha = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
+const cli = join(process.cwd(), "bin", "hush-agents.mjs");
 
 function mutationBindings() {
   return {
@@ -73,6 +75,68 @@ test("watcher resumes from durable cursor and duplicate action keys are idempote
   assert.equal(calls, 1);
 });
 
+test("drain processes handler-generated follow-up events and remains idempotent", () => {
+  const path = root();
+  appendStateEvent(path, "RUN-1", { entity_type: "task", entity_id: "TASK-1", action: "ready", actor: "fixture", cause: "test", timestamp: now, data: { event_type: "TASK_READY", action_key: "first" } });
+  let calls = 0;
+  const handlers = { TASK_READY: () => {
+    calls += 1;
+    if (calls === 1) appendStateEvent(path, "RUN-1", { entity_type: "task", entity_id: "TASK-2", action: "ready", actor: "fixture", cause: "follow-up", timestamp: now, data: { event_type: "TASK_READY", action_key: "follow-up" } });
+    return { calls };
+  } };
+  const first = drainRun(path, "RUN-1", { now, handlers });
+  assert.equal(first.status, "DRAINED");
+  assert.equal(first.pending_events, 0);
+  assert.equal(first.cycles > 1, true);
+  assert.equal(calls, 2);
+  const second = drainRun(path, "RUN-1", { now, handlers });
+  assert.equal(second.status, "DRAINED");
+  assert.equal(second.processed.length, 0);
+  assert.equal(calls, 2);
+});
+
+test("follow mode can drain each polling cycle", async () => {
+  const path = root();
+  appendStateEvent(path, "RUN-1", { entity_type: "task", entity_id: "TASK-1", action: "ready", actor: "fixture", cause: "test", timestamp: now, data: { event_type: "TASK_READY", action_key: "first" } });
+  let calls = 0;
+  const result = await watchRun(path, "RUN-1", { now, follow: true, drain: true, iterations: 1, handlers: { TASK_READY: () => {
+    calls += 1;
+    if (calls === 1) appendStateEvent(path, "RUN-1", { entity_type: "task", entity_id: "TASK-2", action: "ready", actor: "fixture", cause: "follow-up", timestamp: now, data: { event_type: "TASK_READY", action_key: "follow-up" } });
+  } } });
+  assert.equal(result.status, "DRAINED");
+  assert.equal(calls, 2);
+});
+
+test("drain reports pause, no progress, and bounded backlog", () => {
+  const pausedPath = root();
+  appendStateEvent(pausedPath, "RUN-1", { entity_type: "run", entity_id: "RUN-1", action: "created", actor: "hush", cause: "test", timestamp: now, data: { status: "PAUSED" } });
+  appendStateEvent(pausedPath, "RUN-1", { entity_type: "task", entity_id: "TASK-1", action: "ready", actor: "fixture", cause: "test", timestamp: now, data: { event_type: "TASK_READY" } });
+  let pausedCalls = 0;
+  const paused = drainRun(pausedPath, "RUN-1", { now, handlers: { TASK_READY: () => { pausedCalls += 1; } } });
+  assert.equal(paused.status, "PAUSED");
+  assert.equal(pausedCalls, 0);
+  assert.equal(paused.pending_events > 0, true);
+
+  const limitedPath = root();
+  for (const taskId of ["TASK-1", "TASK-2"]) appendStateEvent(limitedPath, "RUN-1", { entity_type: "task", entity_id: taskId, action: "ready", actor: "fixture", cause: "test", timestamp: now, data: { event_type: "TASK_READY", action_key: taskId } });
+  const limited = drainRun(limitedPath, "RUN-1", { now, maxEvents: 1, handlers: { TASK_READY: () => "ok" } });
+  assert.equal(limited.status, "LIMIT_REACHED");
+  assert.equal(limited.pending_events > 0, true);
+
+  const stalled = drainRun(limitedPath, "RUN-1", { now, maxEvents: 1, limit: 0, handlers: { TASK_READY: () => "never" } });
+  assert.equal(stalled.status, "NO_PROGRESS");
+});
+
+test("watch --drain drains through the CLI boundary", () => {
+  const path = root();
+  appendStateEvent(path, "RUN-1", { entity_type: "run", entity_id: "RUN-1", action: "future", actor: "fixture", cause: "test", timestamp: now, data: { event_type: "FUTURE_EVENT", status: "OPEN" } });
+  const result = spawnSync(process.execPath, [cli, "watch", "--run", "RUN-1", "--root", path, "--drain"], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.status, "DRAINED");
+  assert.equal(output.pending_events, 0);
+});
+
 test("replay is read-only and unsupported events become durable blocks", () => {
   const path = root();
   appendStateEvent(path, "RUN-1", { entity_type: "run", entity_id: "RUN-1", action: "created", actor: "hush", cause: "test", timestamp: now, data: { status: "OPEN" } });
@@ -81,6 +145,7 @@ test("replay is read-only and unsupported events become durable blocks", () => {
   const replay = replayRun(path, "RUN-1", { handlers: { FUTURE_EVENT: () => { calls += 1; } }, now });
   assert.equal(replay.status, "REPLAYED");
   assert.equal(calls, 0);
+  assert.throws(() => drainRun(path, "RUN-1", { replay: true }), /DRAIN_REPLAY_FORBIDDEN/);
   const watched = watchOnce(path, "RUN-1", { now });
   assert.equal(watched.processed.at(-1).reason, "UNSUPPORTED_EVENT");
   assert.ok(readStateEvents(path, "RUN-1").some((event) => event.action === "unsupported-event"));

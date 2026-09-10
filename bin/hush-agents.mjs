@@ -39,7 +39,7 @@ function usage() {
   recover-interrupted <run-id> --root <repo>,"make interrupted worker leases retryable","hush-agents recover-interrupted RUN-1 --root ."
   harness-adapter --harness <name> --agent <name>,"bridge a native harness to the Hush JSON adapter contract","hush-agents harness-adapter --harness claude --agent fable"
   observe-capacity <run-id> --root <repo> --available-workers <n> --confidence HIGH,"record measured host capacity","hush-agents observe-capacity RUN-1 --root . --available-workers 6 --confidence HIGH"
-  watch --run <id> --root <repo> [--follow],"consume durable run events and optionally stay in the foreground","hush-agents watch --run RUN-1 --root . --follow"
+  watch --run <id> --root <repo> [--drain] [--follow],"consume durable run events and optionally drain follow-up events or stay in the foreground","hush-agents watch --run RUN-1 --root . --drain"
   pause --run <id> --root <repo>,"pause automatic actions without deleting events","hush-agents pause --run RUN-1 --root ."
   resume --run <id> --root <repo>,"resume automatic actions from the durable cursor","hush-agents resume --run RUN-1 --root ."
   replay --run <id> --root <repo>,"replay the event log with idempotent action keys","hush-agents replay --run RUN-1 --root ."
@@ -504,6 +504,10 @@ function runtimeArgs(args) {
       result.cleanup = true;
       continue;
     }
+    if (parsed.name === "--drain" && parsed.value === undefined) {
+      result.drain = true;
+      continue;
+    }
     if (parsed.name === "--follow" && parsed.value === undefined) {
       result.follow = true;
       continue;
@@ -531,6 +535,8 @@ function runtimeArgs(args) {
     else if (parsed.name === "--iterations") result.iterations = Number(value);
     else if (parsed.name === "--poll-ms") result.pollMs = Number(value);
     else if (parsed.name === "--limit") result.limit = Number(value);
+    else if (parsed.name === "--max-events") result.maxEvents = Number(value);
+    else if (parsed.name === "--max-cycles") result.maxCycles = Number(value);
     else if (parsed.name === "--once") result.iterations = 1;
     else throw new Error(`unknown option ${parsed.name}`);
   }
