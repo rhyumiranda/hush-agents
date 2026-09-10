@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -117,4 +117,45 @@ test("installer rejects unknown agents before writing", () => {
 test("list-agents reports the supported profiles", () => {
   const output = execFileSync(process.execPath, [cli, "list-agents"], { encoding: "utf8" });
   assert.deepEqual(output.trim().split("\n"), ["fable", "rook", "flint", "puck", "vera", "hush"]);
+});
+
+test("codex-register configures native roles and is idempotent", () => {
+  const home = mkdtempSync(join(tmpdir(), "hush-agents-codex-"));
+  const codexHome = join(home, ".codex");
+  mkdirSync(codexHome, { recursive: true });
+  const configPath = join(codexHome, "config.toml");
+  writeFileSync(configPath, "[features]\nhooks = true\n\n[projects.demo]\ntrust_level = \"trusted\"\n");
+  try {
+    const env = { ...process.env, HOME: home };
+    const first = spawnSync(process.execPath, [cli, "codex-register", "--agents", "fable,vera"], { env, encoding: "utf8" });
+    assert.equal(first.status, 0, first.stderr || first.stdout);
+    const registered = readFileSync(configPath, "utf8");
+    assert.match(registered, /hooks = true/);
+    assert.match(registered, /multi_agent = true/);
+    assert.match(registered, /\[agents\]\nenabled = true/);
+    assert.match(registered, /\[agents\.fable\][\s\S]*config_file = "agents\/fable\.toml"/);
+    assert.match(registered, /\[agents\.vera\][\s\S]*config_file = "agents\/vera\.toml"/);
+
+    const second = spawnSync(process.execPath, [cli, "codex-register", "--agents", "fable,vera"], { env, encoding: "utf8" });
+    assert.equal(second.status, 0, second.stderr || second.stdout);
+    assert.match(second.stdout, /false/);
+    assert.equal(readFileSync(configPath, "utf8"), registered);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("codex-register dry-run does not write config", () => {
+  const home = mkdtempSync(join(tmpdir(), "hush-agents-codex-"));
+  try {
+    const result = spawnSync(process.execPath, [cli, "codex-register", "--agents", "fable", "--dry-run"], {
+      env: { ...process.env, HOME: home },
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /DRY_RUN/);
+    assert.equal(existsSync(join(home, ".codex", "config.toml")), false);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });

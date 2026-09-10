@@ -15,10 +15,8 @@
   <a href="https://github.com/rhyumiranda/hush-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/rhyumiranda/hush-agents?style=flat-square" alt="MIT license"></a>
 </p>
 
-Hush Agents installs a multi-harness crew for turning product intent into
-scoped implementation, independent verification, and requirement alignment.
-It installs the agents and runtime foundations; the full scheduler is not yet
-automatic.
+Hush Agents turns product intent into scoped implementation, independent
+verification, and requirement alignment across coding harnesses.
 
 ## Install
 
@@ -34,9 +32,13 @@ Choose agents:
 npx hush-agents install --agents fable,rook
 ```
 
-List: `npx hush-agents list-agents`; repeat `--agent`.
-Keep old.
-Restart Codex; selected agents appear as `$fable` skills.
+List: `npx hush-agents list-agents`.
+
+```sh
+npx hush-agents codex-register --agents fable,rook
+```
+
+Restart Codex; edits `~/.codex/config.toml`. Use `--dry-run` to preview.
 
 Check:
 
@@ -44,7 +46,7 @@ Check:
 npx hush-agents doctor
 ```
 
-The installer adds:
+Paths:
 
 | Harness | Agents | Skills |
 |---|---|---|
