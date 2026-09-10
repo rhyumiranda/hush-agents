@@ -15,11 +15,13 @@ import { replayRunState } from "../lib/runtime/state.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const home = process.env.HOME;
+const agentNames = ["fable", "rook", "flint", "puck", "vera", "hush"];
 const skillNames = ["hush-agents", "readme-craft"];
 
 function usage() {
   console.log(`hush-agents[3]{command,what,next}:
-  install,"copy Codex, Claude Code, Gemini CLI, and OpenCode agents","hush-agents doctor"
+  install [--agents <list>],"copy selected agents to Codex, Claude Code, Gemini CLI, and OpenCode","hush-agents doctor"
+  list-agents,"show available agents","hush-agents install --agents fable,rook"
   doctor,"check package files + installed files","hush-agents install"
   validate-packet <packet.json> [context options],"validate packet shape, digest, and status","hush-agents validate-packet packet.json"
   hashline-read <file>,"read a file with content-hashed line anchors","hush-agents hashline-read src/file.js"
@@ -47,12 +49,14 @@ function usage() {
   help,"show commands","hush-agents install"`);
 }
 
-function copyDirFiles(src, dest, extension) {
+function copyDirFiles(src, dest, extension, selectedNames = agentNames) {
   mkdirSync(dest, { recursive: true });
+  const selectedFiles = new Set(selectedNames.map((name) => `${name}${extension}`));
   for (const name of readdirSync(src)) {
     const source = join(src, name);
     if (!statSync(source).isFile()) continue;
     if (extension && !name.endsWith(extension)) continue;
+    if (!selectedFiles.has(name)) continue;
     copyFileSync(source, join(dest, name));
   }
 }
@@ -67,20 +71,68 @@ function copySkills(destRoot) {
   }
 }
 
-function install() {
+function parseInstallArgs(args) {
+  let selected = null;
+  let listOnly = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const parsed = parseOption(args[index]);
+    if (parsed.name === "--list-agents") {
+      listOnly = true;
+      continue;
+    }
+    if (parsed.name === "--all") {
+      if (selected) throw new Error("--all cannot be combined with --agents");
+      selected = [...agentNames];
+      continue;
+    }
+    if (parsed.name !== "--agents" && parsed.name !== "--agent") {
+      throw new Error(`unknown install option ${parsed.name}`);
+    }
+
+    const value = parsed.value ?? args[++index];
+    if (!value || value.startsWith("--")) throw new Error(`${parsed.name} requires an agent name`);
+    selected ??= [];
+    selected.push(...value.split(",").map((name) => name.trim()).filter(Boolean));
+  }
+
+  if (listOnly) {
+    if (selected || args.some((arg) => arg === "--all")) {
+      throw new Error("--list-agents cannot be combined with install options");
+    }
+    return { listOnly: true, agents: agentNames };
+  }
+
+  const agents = selected ?? [...agentNames];
+  const invalid = agents.filter((name) => !agentNames.includes(name));
+  if (invalid.length) throw new Error(`unknown agent(s): ${[...new Set(invalid)].join(", ")}. Available: ${agentNames.join(", ")}`);
+  return { listOnly: false, agents: [...new Set(agents)] };
+}
+
+function listAgents() {
+  console.log(agentNames.join("\n"));
+}
+
+function install(args = []) {
+  const options = parseInstallArgs(args);
+  if (options.listOnly) {
+    listAgents();
+    return;
+  }
   if (!home) {
     console.log("error: HOME is not set");
     process.exit(1);
   }
-  copyDirFiles(join(root, "agents"), join(home, ".codex", "agents"), ".toml");
-  copyDirFiles(join(root, "agents", "claude"), join(home, ".claude", "agents"), ".md");
-  copyDirFiles(join(root, "agents", "gemini"), join(home, ".gemini", "agents"), ".md");
-  copyDirFiles(join(root, "agents", "opencode"), join(home, ".config", "opencode", "agents"), ".md");
+  copyDirFiles(join(root, "agents"), join(home, ".codex", "agents"), ".toml", options.agents);
+  copyDirFiles(join(root, "agents", "claude"), join(home, ".claude", "agents"), ".md", options.agents);
+  copyDirFiles(join(root, "agents", "gemini"), join(home, ".gemini", "agents"), ".md", options.agents);
+  copyDirFiles(join(root, "agents", "opencode"), join(home, ".config", "opencode", "agents"), ".md", options.agents);
   copySkills(join(home, ".codex"));
   copySkills(join(home, ".claude"));
   copySkills(join(home, ".gemini"));
   copySkills(join(home, ".config", "opencode"));
   console.log(`installed[8]{kind,harness,path}:
+  selected_agents,all,${options.agents.join(",")}
   agents,codex,${join(home, ".codex", "agents")}
   skill,codex,${join(home, ".codex", "skills", "hush-agents")}
   agents,claude-code,${join(home, ".claude", "agents")}
@@ -92,7 +144,6 @@ function install() {
 }
 
 function doctor() {
-  const agentNames = ["fable", "rook", "flint", "puck", "vera", "hush"];
   const bundledCodexAgents = agentNames.filter((name) => existsSync(join(root, "agents", `${name}.toml`)));
   const bundledClaudeAgents = agentNames.filter((name) => existsSync(join(root, "agents", "claude", `${name}.md`)));
   const bundledGeminiAgents = agentNames.filter((name) => existsSync(join(root, "agents", "gemini", `${name}.md`)));
@@ -372,7 +423,11 @@ function verifyWritePathsCommand(args) {
 }
 
 const command = process.argv[2] ?? "help";
-if (command === "install") install();
+if (command === "install") {
+  try { install(process.argv.slice(3)); }
+  catch (error) { console.log(`error: ${error.message}`); process.exit(2); }
+}
+else if (command === "list-agents") listAgents();
 else if (command === "doctor") doctor();
 else if (command === "validate-packet") validatePacketCommand(process.argv[3], process.argv.slice(4));
 else if (command === "hashline-read") hashlineReadCommand(process.argv[3]);

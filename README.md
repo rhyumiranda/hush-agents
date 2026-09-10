@@ -22,21 +22,26 @@ automatic.
 
 ## Install
 
-Install six agents and two skills into Codex, Claude Code, Gemini CLI, and
-OpenCode:
+Install all agents and skills:
 
 ```sh
 npx hush-agents install
 ```
 
-Check the installation:
+Choose only the agents you need:
+
+```sh
+npx hush-agents install --agents fable,rook
+```
+
+List agents with `npx hush-agents list-agents`; repeat `--agent` also works.
+Old profiles stay.
+
+Check:
 
 ```sh
 npx hush-agents doctor
 ```
-
-You should see six bundled agents for each supported harness. Installed counts
-depend on the machine you run this on.
 
 The installer adds:
 
