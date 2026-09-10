@@ -78,6 +78,11 @@ test("installer selects agents across all harnesses", () => {
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /selected_agents,all,fable,vera/);
+    assert.equal(existsSync(join(home, ".codex", "skills", "fable", "SKILL.md")), true);
+    assert.equal(existsSync(join(home, ".codex", "skills", "vera", "SKILL.md")), true);
+    assert.equal(existsSync(join(home, ".codex", "skills", "rook", "SKILL.md")), false);
+    assert.match(readFileSync(join(home, ".codex", "skills", "fable", "SKILL.md"), "utf8"), /This terminal skill activates the fable agent/);
+    assert.match(readFileSync(join(home, ".codex", "skills", "fable", "SKILL.md"), "utf8"), /You are Fable, the requirements agent/);
 
     for (const [directory, extension] of [
       [join(home, ".codex", "agents"), ".toml"],
