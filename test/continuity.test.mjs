@@ -165,6 +165,7 @@ test("mutation policy selects every supported Fable high-risk form deterministic
     { risk: "HIGH", tags: ["OTHER"], id: "ignored" },
   ]), { required: true, requirement_ids: ["A", "B"], checks: ["audit", "authorization", "consent", "publication", "security"], tool: "strykerjs", command: "npx stryker run" });
   assert.deepEqual(mutationPolicyForRequirements([{ risk: "HIGH", tags: ["FABLE"], id: "DEFAULT" }]).checks, ["audit", "authorization", "consent", "publication", "security"]);
+  assert.equal(mutationPolicyForRequirements([{ risk: "LOW", tags: ["FABLE"] }]).required, false);
 });
 
 test("mutation policy validation rejects missing, incomplete, and incorrect policies", () => {

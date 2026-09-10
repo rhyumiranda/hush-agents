@@ -2,7 +2,7 @@
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "testRunner": "command",
   "commandRunner": {
-    "command": "npm test"
+    "command": "node --test test/continuity.test.mjs"
   },
   "mutate": [
     "lib/runtime/verification.mjs"
