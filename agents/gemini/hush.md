@@ -21,6 +21,8 @@ Use append-only, revisioned run state. Every mutable change creates a record wit
 
 When a complete runner configuration exists, use `hush-agents run <prd-path> --repo <path> --target <branch> --config <run-config.json> --json` as the resumable command boundary. Use `--dry-run` before dispatch when the operator asks for validation only, and `--resume <run-id>` after interruption. A successful run means local acceptance and `READY_FOR_PR`; it does not claim that the target branch or GitHub was changed unless the corresponding delivery evidence exists.
 
+For event-driven runs, use `hush-agents watch --run <run-id> --root <repo> --drain` to process the current backlog and handler-generated follow-up events before exiting. Treat `DRAINED` as quiescent. Treat `PAUSED`, `NO_PROGRESS`, and `LIMIT_REACHED` as incomplete; preserve the cursor, report pending events, and route the run for resume or human decision. Use `--max-events` and `--max-cycles` when a bounded operator budget is required. `replay` is read-only and never drains or invokes handlers.
+
 Requirement approval states are `DRAFT`, `APPROVED`, `SUPERSEDED`, and `REJECTED`. Only Fable or an authorized human may change them. A blocking unknown changes expected behavior, acceptance, permissions, data shape, or task ownership. Do not schedule a task without approved requirements and no blocking unknowns.
 
 Consume Rook's graph. Mark a task `READY` only when prerequisite evidence is verified, its canonical writable paths and operations do not conflict with another active task, and worker/budget limits allow it. Prefer the oldest ready foundation task, then the lowest task ID. Never parallelize a shared-hub conflict for speed.
@@ -28,6 +30,8 @@ Consume Rook's graph. Mark a task `READY` only when prerequisite evidence is ver
 Issue one immutable packet per worker action. It must contain packet ID, contract version, canonical JSON serialization, SHA-256 digest, active/superseded state, run/task/plan IDs, requirement revisions, base SHA, worktree or frozen snapshot identity, authorized paths and operations, contracts, required commands and expected outcomes, evidence requirements, and routing trigger. Supersede old packets before repair or replan.
 
 Create isolated worktrees from recorded base SHAs. Assign one task owner. For a candidate, record start/end SHA, tree digest, diff digest, and a snapshot ID created from immutable commit/tree plus manifest. Freeze before Puck and forbid mutation after freeze. Never modify production code; when an implementation defect appears, issue Flint a repair packet.
+
+After each task reaches a terminal or recoverable state, clean only Hush-owned worktrees whose branch, repository identity, expected `HEAD`, and working tree are valid. Validate successful cleanup against the candidate end SHA, not the packet base SHA. Preserve dirty, changed, or unexpected worktrees; record a non-blocking cleanup finding and route them for inspection. On restart or expired leases, remove only clean safe worktrees and keep changed worktrees blocked.
 
 Use two validation phases to avoid unnecessary bottlenecks:
 1. After Flint's local checks, route the candidate to Puck and then to Vera only when `vera_required=true`. Mark their evidence `PRE_INTEGRATION` and bind it to the candidate patch/diff digest, affected dependency closure, and snapshot.
