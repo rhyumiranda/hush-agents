@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,12 +11,50 @@ import { canAutoMerge, GhAxiAdapter, normalizeCiEvent, renderPrPayload, validate
 import { validateRequirementRecord } from "../lib/runtime/requirements.mjs";
 import { capacityPolicy } from "../lib/runtime/scheduler.mjs";
 import { appendStateEvent, readStateEvents } from "../lib/runtime/state.mjs";
-import { mutationPolicyForRequirements, runStrykerPolicy, runVeraShell, summarizeStrykerReport, validateMutationReport, validateVeraShellCommand } from "../lib/runtime/verification.mjs";
+import { createMutationEvidence, mutationPolicyForRequirements, recordMutationEvidence, runStrykerPolicy, runVeraShell, summarizeStrykerReport, validateMutationPolicy, validateMutationReport, validateVeraShellCommand } from "../lib/runtime/verification.mjs";
 import { pauseRun, replayRun, resumeRun, scheduleDurableTimer, watchOnce, writeCursor } from "../lib/runtime/watcher.mjs";
 
 const now = "2026-09-10T02:00:00.000Z";
 const root = () => mkdtempSync(join(tmpdir(), "hush-continuity-"));
 const sha = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
+
+function mutationBindings() {
+  return {
+    packet: { packet_id: "P1" },
+    candidate: { candidate_id: "C1", patch_digest: "patch-1" },
+    snapshot: { snapshot_id: "S1", diff_digest: "diff-1" },
+  };
+}
+
+function mutationReport(statuses = ["Killed"]) {
+  return { files: { "src/example.mjs": { mutants: statuses.map((status) => ({ status })) } } };
+}
+
+function mutationFixture({ report = mutationReport(), exitStatus = 0, versionStatus = 0, writeReport = true, sleepSeconds = 0, versionSleepSeconds = 0 } = {}) {
+  const cwd = root();
+  const bin = join(cwd, "bin");
+  mkdirSync(bin);
+  const npx = join(bin, "npx");
+  writeFileSync(npx, `#!/bin/sh
+if [ "$1" != "--no-install" ] || [ "$2" != "stryker" ] || [ "$HUSH_NETWORK_POLICY" != "disabled" ]; then exit 9; fi
+if [ "$3" = "--version" ]; then
+  if [ "${versionSleepSeconds}" -gt 0 ]; then sleep "${versionSleepSeconds}"; fi
+  if [ "${versionStatus}" -ne 0 ]; then exit "${versionStatus}"; fi
+  printf '%s\\n' '10.0.0'
+  exit 0
+fi
+if [ "${sleepSeconds}" -gt 0 ]; then sleep "${sleepSeconds}"; fi
+printf '%s' "$HUSH_NETWORK_POLICY"
+printf '%s' "$HUSH_MUTATION_STDERR" >&2
+if [ "${writeReport}" = "true" ]; then
+  mkdir -p "$(dirname "$HUSH_REPORT_PATH")"
+  printf '%s' "$HUSH_MUTATION_REPORT" > "$HUSH_REPORT_PATH"
+fi
+exit "${exitStatus}"
+`);
+  chmodSync(npx, 0o755);
+  return { cwd, env: { PATH: `${bin}:${process.env.PATH ?? ""}`, HUSH_REPORT_PATH: "reports/mutation.json", HUSH_MUTATION_REPORT: JSON.stringify(report), HUSH_MUTATION_STDERR: "stderr" }, ...mutationBindings() };
+}
 
 test("watcher resumes from durable cursor and duplicate action keys are idempotent", () => {
   const path = root();
@@ -113,6 +151,206 @@ test("Fable high-risk policy, mutation bindings, and Vera shell restrictions are
   assert.deepEqual({ ...summary, report_digest: undefined }, { total_mutations: 2, killed_mutations: 1, surviving_mutations: 1, mutation_score: 50, report_digest: undefined });
   assert.match(summary.report_digest, /^sha256:[a-f0-9]{64}$/);
   assert.throws(() => runStrykerPolicy({ cwd: "/tmp" }), /MUTATION_BINDINGS_REQUIRED/);
+});
+
+test("mutation policy selects every supported Fable high-risk form deterministically", () => {
+  assert.deepEqual(mutationPolicyForRequirements(), { required: false, requirement_ids: [], checks: [], tool: "strykerjs", command: "npx stryker run" });
+  assert.deepEqual(mutationPolicyForRequirements([
+    null,
+    { risk: "LOW", tags: ["FABLE"] },
+    { risk: "LOW", tags: ["FABLE"], id: "LOW-ID", mutation_checks: ["low"] },
+    { risk: "HIGH", tags: ["fable", "OTHER"], id: "B", mutation_checks: ["security", "security"] },
+    { risk_class: "HIGH", fable_tags: ["FABLE-HIGH-RISK"], requirement_id: "A", mutation_checks: ["audit"] },
+    { high_risk: true, tags: ["FABLE"], requirement_id: null },
+    { risk: "HIGH", tags: ["OTHER"], id: "ignored" },
+  ]), { required: true, requirement_ids: ["A", "B"], checks: ["audit", "authorization", "consent", "publication", "security"], tool: "strykerjs", command: "npx stryker run" });
+  assert.deepEqual(mutationPolicyForRequirements([{ risk: "HIGH", tags: ["FABLE"], id: "DEFAULT" }]).checks, ["audit", "authorization", "consent", "publication", "security"]);
+});
+
+test("mutation policy validation rejects missing, incomplete, and incorrect policies", () => {
+  const requirements = [{ requirement_id: "HIGH-1", risk: "HIGH", tags: ["FABLE"] }];
+  assert.deepEqual(validateMutationPolicy(undefined, { requirements }), { valid: false, errors: ["mutation policy required for Fable-tagged HIGH requirement"] });
+  assert.equal(validateMutationPolicy(undefined).valid, true);
+  assert.deepEqual(validateMutationPolicy({ required: false, tool: "strykerjs", checks: [] }, { requirements }), { valid: false, errors: ["mutation policy required flag does not match Fable high-risk requirements"] });
+  assert.deepEqual(validateMutationPolicy({ required: true, tool: "other", checks: ["audit"] }, { requirements }), { valid: false, errors: ["mutation tool must be strykerjs", "mutation policy does not cover all required high-risk checks"] });
+  assert.equal(validateMutationPolicy({ required: true, tool: "strykerjs", checks: ["audit", "authorization", "consent", "publication", "security"] }, { requirements }).valid, true);
+  assert.equal(validateMutationPolicy({ required: true, tool: "strykerjs", checks: ["audit"] }, { requirements }).errors.includes("mutation policy does not cover all required high-risk checks"), true);
+  assert.equal(validateMutationPolicy({ required: true, tool: "strykerjs", checks: ["audit"] }, { packet: { mutation_policy: { required: true, tool: "strykerjs", checks: ["audit"] } } }).valid, true);
+});
+
+test("Vera command validation covers every denied write or execution boundary", () => {
+  const snapshot = root();
+  for (const command of ["rm", "mv", "cp", "touch", "mkdir", "rmdir", "chmod", "chown", "git  commit", "npm", "npx", "yarn", "pnpm", "gh", "curl", "wget", "nc", "ssh", "make", "pytest", "vitest", "jest", "accept", "approve", "merge"]) {
+    assert.equal(validateVeraShellCommand(command, { snapshotRoot: snapshot, cwd: snapshot }).valid, false, command);
+  }
+  assert.equal(validateVeraShellCommand("echo rm ", { snapshotRoot: snapshot, cwd: snapshot }).valid, false);
+  for (const command of ["echo x > file", "echo x >> file", "printf x | tee", "printf x |  tee out", "sed -i s/a/b/ file", "perl -i -pe s/a/b/ file", "python writeFile", "node appendFile", "node xxappendFile", "cat << heredoc"]) {
+    assert.equal(validateVeraShellCommand(command, { snapshotRoot: snapshot, cwd: snapshot }).valid, false, command);
+  }
+  assert.equal(validateVeraShellCommand("printf read-only", { snapshotRoot: snapshot, cwd: snapshot }).valid, true);
+  assert.equal(validateVeraShellCommand("printf read-only", { snapshotRoot: snapshot, cwd: snapshot, packet: { vera_shell_commands: ["printf other"] } }).valid, false);
+  assert.equal(validateVeraShellCommand("printf read-only", { snapshotRoot: snapshot, cwd: snapshot, packet: { approved_read_only_commands: ["printf read-only"] } }).valid, true);
+  assert.deepEqual(validateVeraShellCommand(null).errors, ["command is required"]);
+  assert.deepEqual(validateVeraShellCommand("rm").errors, ["command is not read-only or is outside Vera capability"]);
+  assert.deepEqual(validateVeraShellCommand("echo x > file").errors, ["shell write operation is forbidden"]);
+  assert.deepEqual(validateVeraShellCommand("printf read-only", { snapshotRoot: snapshot, cwd: snapshot, packet: { vera_shell_commands: ["printf other"] } }).errors, ["command is not approved by the Vera packet"]);
+  assert.deepEqual(validateVeraShellCommand("printf read-only", { snapshotRoot: snapshot, cwd: join(snapshot, "..") }).errors, ["cwd must remain inside the frozen snapshot"]);
+  assert.equal(validateVeraShellCommand("   ").valid, false);
+  assert.equal(validateVeraShellCommand("printf read-only", { snapshotRoot: snapshot, cwd: join(snapshot, "nested") }).valid, true);
+  assert.equal(validateVeraShellCommand("printf read-only", { snapshotRoot: snapshot, cwd: join(snapshot, "..") }).valid, false);
+  assert.equal(validateVeraShellCommand("printf read-only", { snapshotRoot: snapshot, cwd: join(snapshot, "..", "outside") }).valid, false);
+  assert.equal(validateVeraShellCommand("printf read-only", { snapshotRoot: snapshot, cwd: join(snapshot, "..foo") }).valid, true);
+  assert.doesNotThrow(() => validateVeraShellCommand("printf read-only", { snapshotRoot: snapshot, cwd: null }));
+  assert.doesNotThrow(() => validateVeraShellCommand("printf read-only", { snapshotRoot: null, cwd: snapshot }));
+  assert.equal(validateVeraShellCommand("printf read-only", { approvedCommands: ["printf read-only"], packet: { vera_shell_commands: ["printf other"] } }).valid, true);
+  assert.equal(validateVeraShellCommand("printf read-only", { approvedCommands: ["printf read-only", "printf other"], packet: { vera_shell_commands: ["printf other"] } }).valid, true);
+});
+
+test("Vera shell returns success, failure, and timeout evidence without mutation capability", () => {
+  const snapshot = root();
+  const success = runVeraShell({ command: "printf ok", snapshotRoot: snapshot });
+  assert.deepEqual({ exit_status: success.exit_status, stdout: success.stdout, stderr: success.stderr }, { exit_status: 0, stdout: "ok", stderr: "" });
+  assert.equal(success.stdout_digest, sha("ok"));
+  assert.equal(success.stderr_digest, sha(""));
+  assert.equal(runVeraShell({ command: 'printf "$HUSH_VERA_READ_ONLY:$HUSH_NETWORK_POLICY"', snapshotRoot: snapshot }).stdout, "1:disabled");
+  const failure = runVeraShell({ command: "printf bad; exit 7", snapshotRoot: snapshot });
+  assert.equal(failure.exit_status, 7);
+  assert.equal(failure.stdout, "bad");
+  const stderr = runVeraShell({ command: "node -e 'console.error(\"err\")'", snapshotRoot: snapshot });
+  assert.equal(stderr.stderr, "err\n");
+  assert.equal(stderr.stderr_digest, sha("err\n"));
+  const pathOutput = runVeraShell({ command: "printf \"$PATH\"", snapshotRoot: snapshot });
+  assert.equal(pathOutput.stdout, process.env.PATH ?? "/usr/bin:/bin");
+  const savedPath = process.env.PATH;
+  delete process.env.PATH;
+  try {
+    assert.equal(runVeraShell({ command: "printf \"$PATH\"", snapshotRoot: snapshot }).stdout, "/usr/bin:/bin");
+  } finally {
+    process.env.PATH = savedPath;
+  }
+  const timeout = runVeraShell({ command: "sleep 1", snapshotRoot: snapshot, timeoutMs: 10 });
+  assert.equal(timeout.exit_status, 1);
+  assert.throws(() => runVeraShell({ command: "printf ok", snapshotRoot: snapshot, packet: { vera_shell_commands: ["printf other"] } }), /VERA_READ_ONLY_BLOCK/);
+  assert.throws(() => runVeraShell({ command: "echo x > file", snapshotRoot: snapshot, packet: { vera_shell_commands: ["echo other"] } }), (error) => error.code === "VERA_READ_ONLY_BLOCK" && error.message === "VERA_READ_ONLY_BLOCK: shell write operation is forbidden; command is not approved by the Vera packet");
+});
+
+test("mutation evidence binds exact sources and rejects every binding or verdict mismatch", () => {
+  const input = { report_id: "M1", packet_id: "P1", candidate_id: "C1", candidate_patch_digest: "patch-1", candidate_diff_digest: "diff-1", snapshot_id: "S1", status: "PASS", surviving_mutations: 0, report_digest: "forged" };
+  const evidence = createMutationEvidence(input);
+  assert.notEqual(evidence.report_digest, "forged");
+  assert.equal(evidence.report_digest, computeReportDigest({ ...input, report_digest: undefined }));
+  const bindings = mutationBindings();
+  assert.equal(validateMutationReport(evidence, bindings).valid, true);
+  assert.equal(validateMutationReport(evidence, {}).valid, false);
+  const missingCandidate = createMutationEvidence({ ...evidence, candidate_id: undefined, candidate_patch_digest: undefined });
+  assert.equal(validateMutationReport(missingCandidate, { packet: bindings.packet, candidate: null, snapshot: bindings.snapshot }).valid, true);
+  const missingSnapshot = createMutationEvidence({ ...evidence, snapshot_id: undefined, candidate_diff_digest: undefined });
+  assert.equal(validateMutationReport(missingSnapshot, { packet: bindings.packet, candidate: bindings.candidate, snapshot: null }).valid, true);
+  assert.equal(validateMutationReport(evidence, { packet: bindings.packet, candidate: { candidate_id: "C1" }, snapshot: bindings.snapshot }).errors.includes("candidate binding mismatch"), true);
+  assert.equal(validateMutationReport(evidence, { packet: bindings.packet, candidate: bindings.candidate, snapshot: { snapshot_id: "S1" } }).errors.includes("snapshot binding mismatch"), true);
+  for (const [name, altered] of [
+    ["packet", { ...evidence, packet_id: "P2" }],
+    ["candidate id", { ...evidence, candidate_id: "C2" }],
+    ["candidate patch", { ...evidence, candidate_patch_digest: "patch-2" }],
+    ["snapshot id", { ...evidence, snapshot_id: "S2" }],
+    ["snapshot diff", { ...evidence, candidate_diff_digest: "diff-2" }],
+    ["status", { ...evidence, status: "FAIL" }],
+    ["survivors", { ...evidence, surviving_mutations: 1 }],
+    ["digest", { ...evidence, report_digest: "sha256:" + "0".repeat(64) }],
+  ]) {
+    const checked = name === "digest" ? altered : createMutationEvidence(altered);
+    const result = validateMutationReport(checked, bindings);
+    assert.equal(result.valid, false, name);
+    if (name !== "digest") assert.deepEqual(result.errors, [name === "packet" ? "packet binding mismatch" : ["candidate id", "candidate patch"].includes(name) ? "candidate binding mismatch" : ["snapshot id", "snapshot diff"].includes(name) ? "snapshot binding mismatch" : "surviving mutation blocks acceptance"]);
+    if (name === "digest") assert.deepEqual(result.errors, ["report digest mismatch"]);
+  }
+  assert.equal(validateMutationReport(undefined).valid, false);
+  assert.throws(() => recordMutationEvidence(root(), "RUN-1", {}), /MUTATION_REPORT_ID_REQUIRED/);
+  const stateRoot = root();
+  recordMutationEvidence(stateRoot, "RUN-1", evidence, { now, actor: "test" });
+  const recorded = readStateEvents(stateRoot, "RUN-1").at(-1);
+  assert.equal(recorded.entity_type, "mutation_evidence");
+  assert.equal(recorded.actor, "test");
+  assert.equal(recorded.timestamp, now);
+  const defaultStateRoot = root();
+  recordMutationEvidence(defaultStateRoot, "RUN-2", { report_id: "M2" });
+  const defaultRecorded = readStateEvents(defaultStateRoot, "RUN-2").at(-1);
+  assert.equal(defaultRecorded.actor, "puck");
+  assert.equal(defaultRecorded.cause, "mutation-check");
+});
+
+test("Stryker runner records pass and durable failures with exact bindings", () => {
+  const passFixture = mutationFixture();
+  const pass = runStrykerPolicy({ ...passFixture, changedPaths: ["src/b.js", "src/a.js", "src/a.js"], root: passFixture.cwd, runId: "RUN-PASS", now });
+  assert.equal(pass.status, "PASS");
+  assert.equal(pass.tool_version, "10.0.0");
+  assert.deepEqual(pass.changed_paths, ["src/a.js", "src/b.js"]);
+  assert.match(pass.command, /--mutate 'src\/a\.js'/);
+  assert.equal(pass.report_id, `MUTATION-${sha(`${pass.command}\0${join(passFixture.cwd, "reports/mutation.json")}\0${summarizeStrykerReport(mutationReport()).report_digest}`).slice(-16)}`);
+  assert.equal(pass.mutation_tool, "strykerjs");
+  assert.equal(pass.stdout_digest, sha("disabled"));
+  assert.equal(pass.stderr_digest, sha("stderr"));
+  const passEvent = readStateEvents(passFixture.cwd, "RUN-PASS").at(-1);
+  assert.equal(passEvent.entity_type, "mutation_evidence");
+  assert.equal(passEvent.actor, "puck");
+  assert.equal(passEvent.timestamp, now);
+  assert.doesNotThrow(() => runStrykerPolicy({ ...passFixture, root: null, runId: "RUN-NO-ROOT", changedPaths: ["src/a.js"] }));
+  const quoted = runStrykerPolicy({ ...passFixture, changedPaths: ["src/a'b.js"] });
+  assert.equal(quoted.command.includes("'src/a'\\''b.js'"), true);
+
+  const survivorFixture = mutationFixture({ report: mutationReport(["Killed", "Survived"]) });
+  assert.equal(runStrykerPolicy({ ...survivorFixture, changedPaths: ["src/a.js"] }).status, "FAIL");
+  const exitFixture = mutationFixture({ exitStatus: 2 });
+  assert.equal(runStrykerPolicy({ ...exitFixture, changedPaths: ["src/a.js"] }).status, "FAIL");
+  assert.equal(runStrykerPolicy({ ...exitFixture, command: "npx --no-install stryker run", changedPaths: ["src/a.js"] }).exit_status, 2);
+  const missingFixture = mutationFixture({ writeReport: false });
+  assert.throws(() => runStrykerPolicy({ ...missingFixture, changedPaths: ["src/a.js"] }), (error) => {
+    assert.equal(error.code, "MUTATION_REPORT_MISSING");
+    assert.equal(error.message, "MUTATION_REPORT_MISSING");
+    assert.equal(error.result.report_path, join(missingFixture.cwd, "reports", "mutation.json"));
+    return true;
+  });
+  const invalidFixture = mutationFixture({ writeReport: false });
+  mkdirSync(join(invalidFixture.cwd, "reports"));
+  writeFileSync(join(invalidFixture.cwd, "reports", "mutation.json"), "not-json");
+  assert.throws(() => runStrykerPolicy({ ...invalidFixture, changedPaths: ["src/a.js"] }), (error) => {
+    assert.equal(error.code, "MUTATION_REPORT_INVALID");
+    assert.match(error.message, /^MUTATION_REPORT_INVALID:/);
+    return true;
+  });
+  const unavailableFixture = mutationFixture({ versionStatus: 1 });
+  assert.throws(() => runStrykerPolicy({ ...unavailableFixture, changedPaths: ["src/a.js"] }), (error) => error.code === "MUTATION_TOOL_UNAVAILABLE");
+  assert.throws(() => runStrykerPolicy({ ...unavailableFixture, changedPaths: ["src/a.js"] }), (error) => error.message === "MUTATION_TOOL_UNAVAILABLE");
+  const timeoutFixture = mutationFixture({ writeReport: false, sleepSeconds: 10 });
+  mkdirSync(join(timeoutFixture.cwd, "reports"));
+  writeFileSync(join(timeoutFixture.cwd, "reports", "mutation.json"), JSON.stringify(mutationReport()));
+  const timedOut = runStrykerPolicy({ ...timeoutFixture, timeoutMs: 1000, changedPaths: ["src/a.js"] });
+  assert.equal(timedOut.status, "FAIL");
+  assert.equal(timedOut.timed_out, true);
+  assert.equal(timedOut.exit_status, null);
+  const versionTimeoutFixture = mutationFixture({ versionSleepSeconds: 10 });
+  assert.throws(() => runStrykerPolicy({ ...versionTimeoutFixture, timeoutMs: 1000, changedPaths: ["src/a.js"] }), (error) => error.code === "MUTATION_TOOL_UNAVAILABLE" && error.message === "MUTATION_TOOL_UNAVAILABLE");
+  assert.throws(() => runStrykerPolicy({ ...passFixture, cwd: undefined, changedPaths: ["src/a.js"] }), (error) => error.message === "MUTATION_CWD_REQUIRED");
+  for (const missing of [
+    { packet: {} },
+    { candidate: {} },
+    { candidate: { candidate_id: "C1" } },
+    { snapshot: {} },
+    { snapshot: { snapshot_id: "S1" } },
+  ]) {
+    assert.throws(() => runStrykerPolicy({ ...passFixture, ...missing, changedPaths: ["src/a.js"] }), (error) => error.message === "MUTATION_BINDINGS_REQUIRED");
+  }
+  assert.throws(() => runStrykerPolicy({ ...passFixture, changedPaths: [] }), (error) => error.message === "MUTATION_CHANGED_PATHS_REQUIRED");
+  assert.throws(() => runStrykerPolicy({ ...passFixture, changedPaths: "src/a.js" }), (error) => error.message === "MUTATION_CHANGED_PATHS_REQUIRED");
+  assert.throws(() => runStrykerPolicy({ ...passFixture }), (error) => error.message === "MUTATION_CHANGED_PATHS_REQUIRED");
+});
+
+test("Stryker summary handles empty, ignored, unrecognized, and array report shapes", () => {
+  const empty = summarizeStrykerReport();
+  assert.deepEqual({ total_mutations: empty.total_mutations, killed_mutations: empty.killed_mutations, surviving_mutations: empty.surviving_mutations, mutation_score: empty.mutation_score }, { total_mutations: 0, killed_mutations: 0, surviving_mutations: 0, mutation_score: 0 });
+  const summary = summarizeStrykerReport({ files: [{ mutants: [{ status: "NoMutation" }, { status: "Ignored" }, { status: "Killed" }, { status: "Survived" }, { status: "Timeout" }] }, { mutants: "invalid" }] });
+  assert.deepEqual({ total_mutations: summary.total_mutations, killed_mutations: summary.killed_mutations, surviving_mutations: summary.surviving_mutations, mutation_score: summary.mutation_score }, { total_mutations: 4, killed_mutations: 1, surviving_mutations: 2, mutation_score: 25 });
+  assert.equal(summarizeStrykerReport({ files: [null] }).total_mutations, 0);
 });
 
 test("PR rendering, provider timeout, CI identity, and auto-merge guards are deterministic", () => {

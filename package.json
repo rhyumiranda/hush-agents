@@ -1,6 +1,6 @@
 {
   "name": "hush-agents",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "A small multi-harness PRD-to-code agent crew: Fable, Rook, Flint, Puck, Vera, and Hush.",
   "type": "module",
   "bin": {
