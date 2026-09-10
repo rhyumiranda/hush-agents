@@ -27,7 +27,7 @@
     "pack:check": "npm pack --dry-run"
   },
   "devDependencies": {
-    "@stryker-mutator/core": "8.6.0"
+    "@stryker-mutator/core": "10.0.0"
   },
   "keywords": [
     "codex",
@@ -44,6 +44,6 @@
     "url": "git+https://github.com/rhyumiranda/hush-agents.git"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   }
 }
