@@ -13,6 +13,7 @@
     "lib",
     "lib/runtime/environment.mjs",
     "schemas",
+    "stryker.config.json",
     "scripts",
     "docs",
     "assets",
@@ -22,7 +23,11 @@
   "scripts": {
     "build:claude-agents": "node scripts/build-claude-agents.mjs",
     "test": "node --test",
+    "test:mutation": "stryker run",
     "pack:check": "npm pack --dry-run"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "8.6.0"
   },
   "keywords": [
     "codex",

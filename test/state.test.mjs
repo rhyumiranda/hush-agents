@@ -126,6 +126,11 @@ test("runtime state covers every required entity type", () => {
     "finding",
     "human_decision",
     "merge_event",
+    "timer",
+    "watcher",
+    "delivery",
+    "provider_event",
+    "mutation_evidence",
   ]);
 });
 
