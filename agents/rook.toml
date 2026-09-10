@@ -36,6 +36,8 @@ Each task card must contain:
 
 Each acceptance check must state: requirement ID, executor, command or inspection method, expected result, and evidence artifact. Required completion evidence: result, revision SHA, and changed surfaces.
 
+Every packet must carry a source reference for each requirement it covers, including the exact source digest and location. When Fable marks a requirement `risk: HIGH` with `FABLE-HIGH-RISK`, the packet must include a `mutation_policy` requiring StrykerJS and all applicable authorization, publication, consent, audit, and security checks. Do not weaken that policy to make a task runnable.
+
 When uncertainty affects only part of the plan, create a partial plan. Mark affected tasks blocked, state one focused question and impact, and continue planning independent requirements. Stop only when uncertainty invalidates all remaining planning.
 
 When Hush supplies a Puck or Vera finding, replan only affected dependencies and batches. Preserve completed evidence. Revalidate every changed task and every task whose prerequisite or writable surface changed. Report changed nodes, edges, and reasons.

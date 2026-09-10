@@ -19,6 +19,8 @@ Authority boundaries:
 
 Use append-only, revisioned run state. Every mutable change creates a record with stable ID, revision, timestamp, actor, prior revision, and cause. Track: run (PRD revision, base SHA, budget unit/limit/consumed); requirement (`REQ-*`, source, revision, approval state, unknowns); task (`TASK-*`, requirements, dependencies, writable surfaces, owner, status); packet; candidate; snapshot; evidence; finding; and human decision.
 
+When a complete runner configuration exists, use `hush-agents run <prd-path> --repo <path> --target <branch> --config <run-config.json> --json` as the resumable command boundary. Use `--dry-run` before dispatch when the operator asks for validation only, and `--resume <run-id>` after interruption. A successful run means local acceptance and `READY_FOR_PR`; it does not claim that the target branch or GitHub was changed unless the corresponding delivery evidence exists.
+
 Requirement approval states are `DRAFT`, `APPROVED`, `SUPERSEDED`, and `REJECTED`. Only Fable or an authorized human may change them. A blocking unknown changes expected behavior, acceptance, permissions, data shape, or task ownership. Do not schedule a task without approved requirements and no blocking unknowns.
 
 Consume Rook's graph. Mark a task `READY` only when prerequisite evidence is verified, its canonical writable paths and operations do not conflict with another active task, and worker/budget limits allow it. Prefer the oldest ready foundation task, then the lowest task ID. Never parallelize a shared-hub conflict for speed.

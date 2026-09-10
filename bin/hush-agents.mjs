@@ -12,6 +12,7 @@ import { pauseRun, replayRun, resumeRun, watchRun } from "../lib/runtime/watcher
 import { renderPrPayload } from "../lib/runtime/delivery.mjs";
 import { validateWritePathCoverage } from "../lib/runtime/evidence.mjs";
 import { replayRunState } from "../lib/runtime/state.mjs";
+import { RUN_EXIT_CODES, RunnerError, runWorkflow } from "../lib/runtime/runner.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const home = process.env.HOME;
@@ -23,6 +24,7 @@ function usage() {
   install [--agents <list>],"copy selected agents to Codex, Claude Code, Gemini CLI, and OpenCode","hush-agents doctor"
   list-agents,"show available agents","hush-agents install --agents fable,rook"
   codex-register [--agents <list>] [--dry-run],"register selected agents as native Codex roles","hush-agents codex-register --agents fable,rook"
+  run <prd-path> --repo <path> --target <branch> --config <file> [--resume <run-id>] [--dry-run] [--json] [--max-workers <n>],"run a configured PRD through Fable, Rook, Flint, Puck, Vera, and local integration","hush-agents run docs/prd.md --repo . --target main --config .hush/run-config.json"
   doctor,"check package files + installed files","hush-agents install"
   validate-packet <packet.json> [context options],"validate packet shape, digest, and status","hush-agents validate-packet packet.json"
   hashline-read <file>,"read a file with content-hashed line anchors","hush-agents hashline-read src/file.js"
@@ -498,6 +500,27 @@ function runtimeArgs(args) {
   return result;
 }
 
+function runnerArgs(args) {
+  const result = { json: false, dryRun: false };
+  if (!args[0] || args[0].startsWith("--")) throw new RunnerError("PRD path is required", RUN_EXIT_CODES.INVALID_INPUT);
+  result.prdPath = args[0];
+  for (let index = 1; index < args.length; index += 1) {
+    const parsed = parseOption(args[index]);
+    if (parsed.name === "--dry-run") { result.dryRun = true; continue; }
+    if (parsed.name === "--json") { result.json = true; continue; }
+    const value = parsed.value ?? args[++index];
+    if (value === undefined || value.startsWith("--")) throw new RunnerError(`${parsed.name} requires a value`, RUN_EXIT_CODES.INVALID_INPUT);
+    if (parsed.name === "--repo") result.repo = value;
+    else if (parsed.name === "--target") result.target = value;
+    else if (parsed.name === "--config") result.configPath = value;
+    else if (parsed.name === "--resume") result.resume = value;
+    else if (parsed.name === "--max-workers") result.maxWorkers = Number(value);
+    else if (parsed.name === "--now") result.now = value;
+    else throw new RunnerError(`unknown run option ${parsed.name}`, RUN_EXIT_CODES.INVALID_INPUT);
+  }
+  return result;
+}
+
 function worktreeCommand(command, args) {
   const options = runtimeArgs(args);
   if (command === "worktree-create") return createWorktree(options);
@@ -551,6 +574,23 @@ else if (command === "codex-register") {
   try { registerCodexAgents(process.argv.slice(3)); }
   catch (error) { console.log(`error: ${error.message}`); process.exit(2); }
 }
+else if (command === "run") {
+  let options;
+  try {
+    options = runnerArgs(process.argv.slice(3));
+    const result = runWorkflow(options);
+    if (options.json) console.log(JSON.stringify(result));
+    else console.log(`run{status,run_id,exit_code}:\n  ${result.status},${result.run_id},${result.exit_code}`);
+    process.exit(result.exit_code ?? 0);
+  } catch (error) {
+    const exitCode = error.exitCode ?? RUN_EXIT_CODES.FAILED;
+    const output = error.result?.runner_version
+      ? { ...error.result, status: error.result.status ?? (exitCode === RUN_EXIT_CODES.BLOCKED || exitCode === RUN_EXIT_CODES.ENVIRONMENT ? "BLOCKED" : "ERROR"), exit_code: exitCode, error: error.message }
+      : { status: error.result?.status ?? (exitCode === RUN_EXIT_CODES.BLOCKED || exitCode === RUN_EXIT_CODES.ENVIRONMENT ? "BLOCKED" : "ERROR"), exit_code: exitCode, error: error.message, result: error.result ?? null };
+    console.log(options?.json ? JSON.stringify(output) : `error: ${error.message}`);
+    process.exit(output.exit_code);
+  }
+}
 else if (command === "doctor") doctor();
 else if (command === "validate-packet") validatePacketCommand(process.argv[3], process.argv.slice(4));
 else if (command === "hashline-read") hashlineReadCommand(process.argv[3]);
@@ -578,6 +618,6 @@ else if (["merge-enqueue", "merge-status", "merge-process", "merge-abort"].inclu
 else if (command === "help" || command === "--help" || command === "-h") usage();
 else {
   console.log(`error: unknown command ${command}
- help: valid commands are install, list-agents, codex-register, doctor, validate-packet, hashline-read, hashline-patch, run-state, schedule, schedule-once, recover, observe-capacity, watch, pause, resume, replay, verify-write-paths, render-pr, worktree-create, worktree-warm, worktree-allocate, worktree-release, worktree-list, merge-enqueue, merge-status, merge-process, merge-abort, help`);
+  help: valid commands are install, list-agents, codex-register, run, doctor, validate-packet, hashline-read, hashline-patch, run-state, schedule, schedule-once, recover, observe-capacity, watch, pause, resume, replay, verify-write-paths, render-pr, worktree-create, worktree-warm, worktree-allocate, worktree-release, worktree-list, merge-enqueue, merge-status, merge-process, merge-abort, help`);
   process.exit(2);
 }
