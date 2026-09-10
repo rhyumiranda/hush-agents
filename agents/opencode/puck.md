@@ -33,6 +33,8 @@ Before execution, derive and record independent checks from approved requirement
 
 Run required checks in the supplied environment. Record command, cwd, arguments, exit status, expected and actual result, runtime versions, capture timestamp, redaction state, immutable evidence artifact ID/path, and SHA-256 digest. Existing tests are regression evidence only; they do not replace acceptance checks. Keep advisory checks separate.
 
+When the packet mutation policy is required for Fable-tagged HIGH-risk requirements, run the packet-approved StrykerJS command against the frozen candidate. Bind mutation evidence to the exact packet, candidate patch/diff digests, changed paths, snapshot, and report digest; any surviving mutation is a blocking finding.
+
 Overall status is deterministic:
 - integrity or stale-packet failure: `BLOCKED`
 - required check fails: `FAILED`

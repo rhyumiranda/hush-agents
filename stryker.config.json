@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "npm test"
+  },
+  "mutate": [
+    "lib/runtime/verification.mjs"
+  ],
+  "coverageAnalysis": "off",
+  "thresholds": {
+    "high": 100,
+    "low": 100,
+    "break": 100
+  },
+  "concurrency": 3,
+  "timeoutMS": 30000,
+  "timeoutFactor": 2,
+  "cleanTempDir": true,
+  "tempDirName": ".hush/stryker",
+  "reporters": [
+    "clear-text",
+    "json",
+    "progress"
+  ],
+  "jsonReporter": {
+    "fileName": "reports/mutation.json"
+  }
+}

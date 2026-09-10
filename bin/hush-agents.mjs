@@ -8,6 +8,10 @@ import { applyHashline, readHashline } from "../lib/runtime/hashline.mjs";
 import { dispatchOne, dispatchReadyTasks, recoverExpiredLeases, recordCapacityObservation, writeRunSummary } from "../lib/runtime/scheduler.mjs";
 import { allocateWorktree, createWorktree, listWorktrees, releaseWorktree, warmWorktree } from "../lib/runtime/worktree.mjs";
 import { abortMerge, enqueueCandidate, processNextMerge, queueStatus } from "../lib/runtime/merge-queue.mjs";
+import { pauseRun, replayRun, resumeRun, watchRun } from "../lib/runtime/watcher.mjs";
+import { renderPrPayload } from "../lib/runtime/delivery.mjs";
+import { validateWritePathCoverage } from "../lib/runtime/evidence.mjs";
+import { replayRunState } from "../lib/runtime/state.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const home = process.env.HOME;
@@ -25,6 +29,12 @@ function usage() {
   schedule-once <run-id> --root <repo>,"admit one safe ready task","hush-agents schedule-once RUN-1 --root ."
   recover <run-id> --root <repo>,"block expired worker leases","hush-agents recover RUN-1 --root ."
   observe-capacity <run-id> --root <repo> --available-workers <n> --confidence HIGH,"record measured host capacity","hush-agents observe-capacity RUN-1 --root . --available-workers 6 --confidence HIGH"
+  watch --run <id> --root <repo> [--follow],"consume durable run events and optionally stay in the foreground","hush-agents watch --run RUN-1 --root . --follow"
+  pause --run <id> --root <repo>,"pause automatic actions without deleting events","hush-agents pause --run RUN-1 --root ."
+  resume --run <id> --root <repo>,"resume automatic actions from the durable cursor","hush-agents resume --run RUN-1 --root ."
+  replay --run <id> --root <repo>,"replay the event log with idempotent action keys","hush-agents replay --run RUN-1 --root ."
+  verify-write-paths --packet <file> --report <file>,"verify complete per-write-path evidence coverage","hush-agents verify-write-paths --packet packet.json --report report.json"
+  render-pr --run <id> --root <repo>,"render a deterministic PR payload","hush-agents render-pr --run RUN-1 --root ."
   worktree-create --repo <path> --base <sha> --run <id> --task <id>,"create an owned worker worktree","hush-agents worktree-create --repo . --base HEAD --run RUN-1 --task TASK-1"
   worktree-warm --repo <path> --base <sha> --profile <file> --packet <file>,"warm a packet-bound worker worktree","hush-agents worktree-warm --repo . --base <sha> --profile profile.json --packet packet.json"
   worktree-allocate --repo <path> --run <id> --task <id> --packet <file>,"lease one warm worktree","hush-agents worktree-allocate --repo . --run RUN-1 --task TASK-1 --packet packet.json"
@@ -258,7 +268,7 @@ function schedulerArgs(args) {
     else if (parsed.name === "--max-workers") result.maxWorkers = Number(value);
     else if (parsed.name === "--now") result.now = value;
     else if (parsed.name === "--lease-ms") result.leaseMs = Number(value);
-    else if (parsed.name === "--available-workers") result.capacityObservation = { ...(result.capacityObservation ?? {}), available_workers: Number(value) };
+    else if (parsed.name === "--available-workers" || parsed.name === "--available") result.capacityObservation = { ...(result.capacityObservation ?? {}), available_workers: Number(value) };
     else if (parsed.name === "--safe-limit") result.capacityObservation = { ...(result.capacityObservation ?? {}), safe_limit: Number(value) };
     else if (parsed.name === "--confidence") result.capacityObservation = { ...(result.capacityObservation ?? {}), confidence: value };
     else if (parsed.name === "--host-id") result.capacityObservation = { ...(result.capacityObservation ?? {}), host_id: value };
@@ -285,6 +295,10 @@ function runtimeArgs(args) {
       result.cleanup = true;
       continue;
     }
+    if (parsed.name === "--follow" && parsed.value === undefined) {
+      result.follow = true;
+      continue;
+    }
     const value = parsed.value ?? args[index + 1];
     if (parsed.value === undefined) index += 1;
     if (value === undefined) throw new Error(`option value is required: ${parsed.name}`);
@@ -294,6 +308,7 @@ function runtimeArgs(args) {
     else if (parsed.name === "--run") result.runId = value;
     else if (parsed.name === "--task") result.taskId = value;
     else if (parsed.name === "--packet") result.packetPath = value;
+    else if (parsed.name === "--report") result.reportPath = value;
     else if (parsed.name === "--profile") result.profile = value;
     else if (parsed.name === "--worktree") result.worktreeId = value;
     else if (parsed.name === "--cleanup") result.cleanup = true;
@@ -304,6 +319,10 @@ function runtimeArgs(args) {
     else if (parsed.name === "--reason") result.reason = value;
     else if (parsed.name === "--check") result.checks.push(value);
     else if (parsed.name === "--now") result.now = value;
+    else if (parsed.name === "--iterations") result.iterations = Number(value);
+    else if (parsed.name === "--poll-ms") result.pollMs = Number(value);
+    else if (parsed.name === "--limit") result.limit = Number(value);
+    else if (parsed.name === "--once") result.iterations = 1;
     else throw new Error(`unknown option ${parsed.name}`);
   }
   return result;
@@ -326,6 +345,32 @@ function mergeCommand(command, args) {
   return abortMerge(options);
 }
 
+function continuityCommand(command, args) {
+  const options = runtimeArgs(args);
+  if (!options.runId) throw new Error("run id is required");
+  if (command === "watch") return watchRun(options.root, options.runId, options);
+  if (command === "pause") return pauseRun(options.root, options.runId, options);
+  if (command === "resume") return resumeRun(options.root, options.runId, options);
+  if (command === "replay") return replayRun(options.root, options.runId, options);
+  if (command === "render-pr") {
+    const state = replayRunState(options.root, options.runId);
+    const candidate = Object.values(state.entities.candidate ?? {}).sort((a, b) => String(a.id).localeCompare(String(b.id))).at(-1) ?? {};
+    return renderPrPayload({ run_id: options.runId, candidate, requirements: candidate.requirements ?? [], checks: candidate.checks ?? [], evidence: candidate.evidence ?? [], findings: candidate.findings ?? [], target: state.entities.run?.[options.runId]?.target ?? "main" });
+  }
+  throw new Error(`unknown continuity command: ${command}`);
+}
+
+function verifyWritePathsCommand(args) {
+  const options = runtimeArgs(args);
+  if (!options.packetPath || !options.reportPath) throw new Error("packet and report paths are required");
+  const packet = JSON.parse(readFileSync(options.packetPath, "utf8"));
+  const report = JSON.parse(readFileSync(options.reportPath, "utf8"));
+  const result = validateWritePathCoverage(packet, report);
+  console.log(JSON.stringify(result));
+  if (!result.valid) process.exit(1);
+  return result;
+}
+
 const command = process.argv[2] ?? "help";
 if (command === "install") install();
 else if (command === "doctor") doctor();
@@ -334,6 +379,14 @@ else if (command === "hashline-read") hashlineReadCommand(process.argv[3]);
 else if (command === "hashline-patch") hashlinePatchCommand(process.argv[3], process.argv[4], process.argv.slice(5));
 else if (["run-state", "schedule", "schedule-once", "recover", "observe-capacity"].includes(command)) {
   try { schedulerCommand(command, process.argv[3], process.argv.slice(4)); }
+  catch (error) { console.log(JSON.stringify({ status: "READ_ERROR", issue: { rule: error.message } })); process.exit(2); }
+}
+else if (["watch", "pause", "resume", "replay", "render-pr"].includes(command)) {
+  try { console.log(JSON.stringify(await continuityCommand(command, process.argv.slice(3)))); }
+  catch (error) { console.log(JSON.stringify({ status: "READ_ERROR", issue: { rule: error.message } })); process.exit(2); }
+}
+else if (command === "verify-write-paths") {
+  try { verifyWritePathsCommand(process.argv.slice(3)); }
   catch (error) { console.log(JSON.stringify({ status: "READ_ERROR", issue: { rule: error.message } })); process.exit(2); }
 }
 else if (["worktree-create", "worktree-warm", "worktree-allocate", "worktree-release", "worktree-list"].includes(command)) {
@@ -347,6 +400,6 @@ else if (["merge-enqueue", "merge-status", "merge-process", "merge-abort"].inclu
 else if (command === "help" || command === "--help" || command === "-h") usage();
 else {
   console.log(`error: unknown command ${command}
- help: valid commands are install, doctor, validate-packet, hashline-read, hashline-patch, run-state, schedule, schedule-once, recover, observe-capacity, worktree-create, worktree-warm, worktree-allocate, worktree-release, worktree-list, merge-enqueue, merge-status, merge-process, merge-abort, help`);
+ help: valid commands are install, doctor, validate-packet, hashline-read, hashline-patch, run-state, schedule, schedule-once, recover, observe-capacity, watch, pause, resume, replay, verify-write-paths, render-pr, worktree-create, worktree-warm, worktree-allocate, worktree-release, worktree-list, merge-enqueue, merge-status, merge-process, merge-abort, help`);
   process.exit(2);
 }
