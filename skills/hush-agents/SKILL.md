@@ -29,6 +29,18 @@ Use this when a user wants to turn a PRD, issue, or product intent into code thr
 9. Hush reuses evidence when the implementation patch is unchanged; otherwise it runs targeted rechecks.
 10. Hush accepts only when the integrated candidate has valid evidence and passing integration checks.
 
+## Single-command runner
+
+When the repository has a run config, invoke the durable workflow with:
+
+```sh
+hush-agents run <prd-path> --repo <path> --target <branch> --config <run-config.json> --json
+```
+
+Use `--dry-run` to validate without dispatching, and `--resume <run-id>` after
+an interruption. Exit `0` means local acceptance and `READY_FOR_PR`; remote
+GitHub delivery and merge require their own provider evidence.
+
 ## Hard Rules
 
 - Do not let Flint verify itself.

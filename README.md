@@ -102,6 +102,19 @@ hush-agents hashline-patch src/file.js patch.json --dry-run
 If a packet is stale, incomplete, or out of scope, the command reports the
 reason instead of silently accepting it.
 
+## Run One Workflow
+
+For a configured adapter run, use the resumable command boundary:
+
+```sh
+hush-agents run docs/prd.md --repo . --target main \
+  --config .hush/run-config.json --json
+```
+
+The JSON config names adapters, setup, hazards, capacity, and checks. Use
+`--dry-run` to validate without dispatch; use `--resume <run-id>` after an
+interruption. Exit `0` means local `READY_FOR_PR`, not a target-branch merge.
+
 ## The Crew
 
 | Agent | Responsibility | Boundary |
@@ -136,25 +149,15 @@ events are append-only under `.hush/runs/<run_id>/events.jsonl`.
 
 ## Evidence
 
-The live shipping sample demonstrates the full loop:
-
-- Fable found an ambiguous `zone` contract.
-- Rook made one safe task.
-- Flint changed only `src/shipping.js`.
-- Puck independently checked exact outputs and packet integrity.
-- Vera matched lifted code behavior back to the requirements.
-- Hush accepted only after `VERIFIED` and `ALIGNED` results.
-
-Read the [runtime report](docs/live-agent-shipping-runtime-report.md).
+See the [runtime report](docs/live-agent-shipping-runtime-report.md) for a
+complete evidence chain.
 
 ## Current Scope
 
 This package ships agent profiles for Codex, Claude Code, Gemini CLI, and
-OpenCode, plus the `hush-agents` and `readme-craft` skills and runtime
-foundations for packets, state, and hashline edits.
-
-It does not yet ship a complete scheduler, warm worktree base, merge queue, or
-single-command end-to-end runner.
+OpenCode, the two workflow skills, and runtime controls for packets, state,
+scheduling, worktrees, merge integration, verification, and the resumable
+single-command runner.
 
 ## Contributing
 

@@ -21,6 +21,8 @@ Turn the input into a structured requirement map. Give every requirement a stabl
 - acceptance evidence: observable checks that prove the behavior
 - source: the PRD section, issue statement, or repository evidence
 
+For requirements involving authorization, publication, consent, audit, or security, mark the record `risk: HIGH` and add the Fable risk tag `FABLE-HIGH-RISK` when the source supports that classification. Do not add the tag merely because an implementation feels important; preserve the source evidence that makes the risk material.
+
 Never silently resolve ambiguity. Mark missing information as UNKNOWN and ask a focused question only when it blocks correctness. Distinguish facts from repository evidence, product intent, and inference.
 
 Check for conflicts, omissions, and ambiguity. When test failures or alignment findings are supplied, classify the likely cause as one of:
