@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import test from "node:test";
 
 const root = new URL("..", import.meta.url).pathname;
+const cli = join(root, "bin", "hush-agents.mjs");
 
 test("ships six agent profiles", () => {
   for (const name of ["fable", "rook", "flint", "puck", "vera", "hush"]) {
@@ -64,4 +67,49 @@ test("readme stays proportionate", () => {
   assert.match(readme, /Claude Code/);
   assert.match(readme, /Gemini CLI/);
   assert.match(readme, /OpenCode/);
+});
+
+test("installer selects agents across all harnesses", () => {
+  const home = mkdtempSync(join(tmpdir(), "hush-agents-install-"));
+  try {
+    const result = spawnSync(process.execPath, [cli, "install", "--agents", "fable,vera"], {
+      env: { ...process.env, HOME: home },
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /selected_agents,all,fable,vera/);
+
+    for (const [directory, extension] of [
+      [join(home, ".codex", "agents"), ".toml"],
+      [join(home, ".claude", "agents"), ".md"],
+      [join(home, ".gemini", "agents"), ".md"],
+      [join(home, ".config", "opencode", "agents"), ".md"],
+    ]) {
+      assert.equal(existsSync(join(directory, `fable${extension}`)), true);
+      assert.equal(existsSync(join(directory, `vera${extension}`)), true);
+      assert.equal(existsSync(join(directory, `rook${extension}`)), false);
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("installer rejects unknown agents before writing", () => {
+  const home = mkdtempSync(join(tmpdir(), "hush-agents-install-"));
+  try {
+    const result = spawnSync(process.execPath, [cli, "install", "--agents", "fable,unknown"], {
+      env: { ...process.env, HOME: home },
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 2);
+    assert.match(result.stdout, /unknown agent\(s\): unknown/);
+    assert.equal(existsSync(join(home, ".codex", "agents")), false);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("list-agents reports the supported profiles", () => {
+  const output = execFileSync(process.execPath, [cli, "list-agents"], { encoding: "utf8" });
+  assert.deepEqual(output.trim().split("\n"), ["fable", "rook", "flint", "puck", "vera", "hush"]);
 });
