@@ -118,6 +118,8 @@ interruption. Exit `0` means local `READY_FOR_PR`, not a target-branch merge.
 Adapter bridge: `hush-agents harness-adapter --harness <name> --agent <role>`.
 Use `codex`, `claude`, `gemini`, or `opencode`; set provider names in `pass_env`.
 
+Completed runs remove clean task worktrees; dirty ones remain for review.
+
 ## The Crew
 
 | Agent | Responsibility | Boundary |
