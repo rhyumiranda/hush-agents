@@ -115,6 +115,9 @@ The JSON config names adapters, setup, hazards, capacity, and checks. Use
 `--dry-run` to validate without dispatch; use `--resume <run-id>` after an
 interruption. Exit `0` means local `READY_FOR_PR`, not a target-branch merge.
 
+Adapter bridge: `hush-agents harness-adapter --harness <name> --agent <role>`.
+Use `codex`, `claude`, `gemini`, or `opencode`; set provider names in `pass_env`.
+
 ## The Crew
 
 | Agent | Responsibility | Boundary |
@@ -151,13 +154,6 @@ events are append-only under `.hush/runs/<run_id>/events.jsonl`.
 
 See the [runtime report](docs/live-agent-shipping-runtime-report.md) for a
 complete evidence chain.
-
-## Current Scope
-
-This package ships agent profiles for Codex, Claude Code, Gemini CLI, and
-OpenCode, the two workflow skills, and runtime controls for packets, state,
-scheduling, worktrees, merge integration, verification, and the resumable
-single-command runner.
 
 ## Contributing
 

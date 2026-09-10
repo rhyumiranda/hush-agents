@@ -1,11 +1,13 @@
 #!/usr/bin/env node
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { PACKET_STATUS, validatePacket } from "../lib/runtime/packet.mjs";
 import { applyHashline, readHashline } from "../lib/runtime/hashline.mjs";
-import { dispatchOne, dispatchReadyTasks, recoverExpiredLeases, recordCapacityObservation, writeRunSummary } from "../lib/runtime/scheduler.mjs";
+import { dispatchOne, dispatchReadyTasks, recoverExpiredLeases, recoverInterruptedLeases, recordCapacityObservation, writeRunSummary } from "../lib/runtime/scheduler.mjs";
 import { allocateWorktree, createWorktree, listWorktrees, releaseWorktree, warmWorktree } from "../lib/runtime/worktree.mjs";
 import { abortMerge, enqueueCandidate, processNextMerge, queueStatus } from "../lib/runtime/merge-queue.mjs";
 import { pauseRun, replayRun, resumeRun, watchRun } from "../lib/runtime/watcher.mjs";
@@ -13,6 +15,7 @@ import { renderPrPayload } from "../lib/runtime/delivery.mjs";
 import { validateWritePathCoverage } from "../lib/runtime/evidence.mjs";
 import { replayRunState } from "../lib/runtime/state.mjs";
 import { RUN_EXIT_CODES, RunnerError, runWorkflow } from "../lib/runtime/runner.mjs";
+import { SUPPORTED_HARNESSES, buildHarnessInvocation, loadBundledProfile, parseHarnessOutput } from "../lib/runtime/harness-adapter.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const home = process.env.HOME;
@@ -33,6 +36,8 @@ function usage() {
   schedule <run-id> --root <repo> --max-workers 8,"admit all safe ready tasks","hush-agents schedule RUN-1 --root . --max-workers 8"
   schedule-once <run-id> --root <repo>,"admit one safe ready task","hush-agents schedule-once RUN-1 --root ."
   recover <run-id> --root <repo>,"block expired worker leases","hush-agents recover RUN-1 --root ."
+  recover-interrupted <run-id> --root <repo>,"make interrupted worker leases retryable","hush-agents recover-interrupted RUN-1 --root ."
+  harness-adapter --harness <name> --agent <name>,"bridge a native harness to the Hush JSON adapter contract","hush-agents harness-adapter --harness claude --agent fable"
   observe-capacity <run-id> --root <repo> --available-workers <n> --confidence HIGH,"record measured host capacity","hush-agents observe-capacity RUN-1 --root . --available-workers 6 --confidence HIGH"
   watch --run <id> --root <repo> [--follow],"consume durable run events and optionally stay in the foreground","hush-agents watch --run RUN-1 --root . --follow"
   pause --run <id> --root <repo>,"pause automatic actions without deleting events","hush-agents pause --run RUN-1 --root ."
@@ -456,7 +461,39 @@ function schedulerCommand(command, runId, args) {
   else if (command === "observe-capacity") console.log(JSON.stringify(recordCapacityObservation(options.root, runId, options.capacityObservation ?? {}, { now: options.now })));
   else if (command === "schedule") console.log(JSON.stringify(dispatchReadyTasks(options.root, runId, options)));
   else if (command === "schedule-once") console.log(JSON.stringify(dispatchOne(options.root, runId, options)));
+  else if (command === "recover-interrupted") console.log(JSON.stringify(recoverInterruptedLeases(options.root, runId, options)));
   else console.log(JSON.stringify(recoverExpiredLeases(options.root, runId, options)));
+}
+
+function harnessAdapterCommand(args) {
+  let harness;
+  let agent;
+  let executable;
+  let sandbox;
+  for (let index = 0; index < args.length; index += 1) {
+    const parsed = parseOption(args[index]);
+    const value = parsed.value ?? args[index + 1];
+    if (parsed.value === undefined) index += 1;
+    if (parsed.name === "--harness") harness = value;
+    else if (parsed.name === "--agent") agent = value;
+    else if (parsed.name === "--executable") executable = value;
+    else if (parsed.name === "--sandbox") sandbox = value;
+    else if (parsed.name) throw new Error(`unknown option ${parsed.name}`);
+  }
+  if (!SUPPORTED_HARNESSES.includes(harness)) throw new Error(`--harness must be one of ${SUPPORTED_HARNESSES.join(", ")}`);
+  if (!agentNames.includes(agent)) throw new Error(`--agent must be one of ${agentNames.join(", ")}`);
+  const input = JSON.parse(readFileSync(0, "utf8"));
+  const tempRoot = mkdtempSync(join(tmpdir(), "hush-harness-adapter-"));
+  const outputPath = join(tempRoot, "last-message.txt");
+  try {
+    const invocation = buildHarnessInvocation({ harness, role: agent, payload: input, outputPath, executable, sandbox, profileText: loadBundledProfile(root, harness, agent) });
+    const result = spawnSync(invocation.command, invocation.args, { cwd: input.worktree_path ?? input.repository ?? process.cwd(), input: invocation.input, encoding: "utf8", timeout: 10 * 60 * 1000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, HUSH_RUN_ID: input.run_id ?? "", HUSH_ROLE: agent } });
+    if (result.error || result.status !== 0) throw new Error(`${harness} exited ${result.status ?? "with error"}: ${result.error?.message ?? result.stderr ?? "unknown error"}`);
+    const outputText = existsSync(outputPath) ? readFileSync(outputPath, "utf8") : "";
+    process.stdout.write(`${JSON.stringify(parseHarnessOutput({ harness, stdout: result.stdout, outputText }))}\n`);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 }
 
 function runtimeArgs(args) {
@@ -578,7 +615,7 @@ else if (command === "run") {
   let options;
   try {
     options = runnerArgs(process.argv.slice(3));
-    const result = runWorkflow(options);
+    const result = await runWorkflow(options);
     if (options.json) console.log(JSON.stringify(result));
     else console.log(`run{status,run_id,exit_code}:\n  ${result.status},${result.run_id},${result.exit_code}`);
     process.exit(result.exit_code ?? 0);
@@ -592,10 +629,14 @@ else if (command === "run") {
   }
 }
 else if (command === "doctor") doctor();
+else if (command === "harness-adapter") {
+  try { harnessAdapterCommand(process.argv.slice(3)); }
+  catch (error) { console.error(`error: ${error.message}`); process.exit(1); }
+}
 else if (command === "validate-packet") validatePacketCommand(process.argv[3], process.argv.slice(4));
 else if (command === "hashline-read") hashlineReadCommand(process.argv[3]);
 else if (command === "hashline-patch") hashlinePatchCommand(process.argv[3], process.argv[4], process.argv.slice(5));
-else if (["run-state", "schedule", "schedule-once", "recover", "observe-capacity"].includes(command)) {
+else if (["run-state", "schedule", "schedule-once", "recover", "recover-interrupted", "observe-capacity"].includes(command)) {
   try { schedulerCommand(command, process.argv[3], process.argv.slice(4)); }
   catch (error) { console.log(JSON.stringify({ status: "READ_ERROR", issue: { rule: error.message } })); process.exit(2); }
 }
@@ -618,6 +659,6 @@ else if (["merge-enqueue", "merge-status", "merge-process", "merge-abort"].inclu
 else if (command === "help" || command === "--help" || command === "-h") usage();
 else {
   console.log(`error: unknown command ${command}
-  help: valid commands are install, list-agents, codex-register, run, doctor, validate-packet, hashline-read, hashline-patch, run-state, schedule, schedule-once, recover, observe-capacity, watch, pause, resume, replay, verify-write-paths, render-pr, worktree-create, worktree-warm, worktree-allocate, worktree-release, worktree-list, merge-enqueue, merge-status, merge-process, merge-abort, help`);
+  help: valid commands are install, list-agents, codex-register, run, doctor, harness-adapter, validate-packet, hashline-read, hashline-patch, run-state, schedule, schedule-once, recover, recover-interrupted, observe-capacity, watch, pause, resume, replay, verify-write-paths, render-pr, worktree-create, worktree-warm, worktree-allocate, worktree-release, worktree-list, merge-enqueue, merge-status, merge-process, merge-abort, help`);
   process.exit(2);
 }

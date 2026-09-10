@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { sealPacket } from "../lib/runtime/packet.mjs";
-import { dispatchOne, dispatchReadyTasks, evidenceReuseDecision, orderReadyTasks, recoverExpiredLeases, routeFailure, taskQueue, writeRunSummary } from "../lib/runtime/scheduler.mjs";
+import { dispatchOne, dispatchReadyTasks, evidenceReuseDecision, orderReadyTasks, recoverExpiredLeases, recoverInterruptedLeases, routeFailure, taskQueue, writeRunSummary } from "../lib/runtime/scheduler.mjs";
 import { appendStateEvent, replayRunState } from "../lib/runtime/state.mjs";
 
 const root = () => mkdtempSync(join(tmpdir(), "hush-scheduler-"));
@@ -61,6 +61,17 @@ test("recovers expired lease and routes strikes", () => {
   routeFailure(path, runId, "T-1", { cause: "IMPLEMENTATION_DEFECT" });
   const third = routeFailure(path, runId, "T-1", { cause: "IMPLEMENTATION_DEFECT" });
   assert.equal(third.status, "HUMAN_DECISION");
+});
+
+test("resume turns every interrupted worker lease back into retryable work", () => {
+  const path = root(); const runId = "RUN-RESUME"; const p = packet(runId, "T-1");
+  seed(path, runId, [{ id: "T-1", packet_id: p.packet_id }], { [p.packet_id]: p });
+  dispatchOne(path, runId, { now: "2026-09-10T00:00:00.000Z", leaseMs: 60 * 60 * 1000 });
+  const recovery = recoverInterruptedLeases(path, runId, { now: "2026-09-10T00:01:00.000Z" });
+  assert.equal(recovery.recovered[0].reason, "RUNNER_RESUME");
+  assert.equal(replayRunState(path, runId).entities.task["T-1"].status, "READY");
+  assert.equal(replayRunState(path, runId).entities.task["T-1"].attempt, 2);
+  assert.equal(dispatchOne(path, runId, { now: "2026-09-10T00:02:00.000Z" }).dispatched.length, 1);
 });
 
 test("packet defects do not consume implementation strikes", () => {
