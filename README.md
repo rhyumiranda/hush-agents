@@ -28,14 +28,15 @@ Install all agents and skills:
 npx hush-agents install
 ```
 
-Choose only the agents you need:
+Choose agents:
 
 ```sh
 npx hush-agents install --agents fable,rook
 ```
 
-List agents with `npx hush-agents list-agents`; repeat `--agent` also works.
-Old profiles stay.
+List: `npx hush-agents list-agents`; repeat `--agent`.
+Keep old.
+Restart Codex; selected agents appear as `$fable` skills.
 
 Check:
 

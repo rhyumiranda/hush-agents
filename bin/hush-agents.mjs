@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -71,6 +71,39 @@ function copySkills(destRoot) {
   }
 }
 
+function readTomlString(source, key) {
+  const triple = source.match(new RegExp(`^${key}\\s*=\\s*"""\\n?([\\s\\S]*?)\\n?"""`, "m"));
+  if (triple) return triple[1].trim();
+  const quoted = source.match(new RegExp(`^${key}\\s*=\\s*"([^"\\n]*)"`, "m"));
+  if (quoted) return JSON.parse(`"${quoted[1]}"`);
+  throw new Error(`agent profile is missing ${key}`);
+}
+
+function copyCodexAgentSkills(destRoot, selectedNames) {
+  for (const name of selectedNames) {
+    const profile = readFileSync(join(root, "agents", `${name}.toml`), "utf8");
+    const description = readTomlString(profile, "description");
+    const sandboxMode = readTomlString(profile, "sandbox_mode");
+    const instructions = readTomlString(profile, "developer_instructions");
+    const skill = [
+      "---",
+      `name: ${name}`,
+      `description: ${JSON.stringify(description)}`,
+      "---",
+      "",
+      `# ${name} agent`,
+      "",
+      `This terminal skill activates the ${name} agent instructions. Keep the profile boundary: ${sandboxMode}.`,
+      "",
+      instructions,
+      "",
+    ].join("\n");
+    const destination = join(destRoot, "skills", name, "SKILL.md");
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, skill);
+  }
+}
+
 function parseInstallArgs(args) {
   let selected = null;
   let listOnly = false;
@@ -128,6 +161,7 @@ function install(args = []) {
   copyDirFiles(join(root, "agents", "gemini"), join(home, ".gemini", "agents"), ".md", options.agents);
   copyDirFiles(join(root, "agents", "opencode"), join(home, ".config", "opencode", "agents"), ".md", options.agents);
   copySkills(join(home, ".codex"));
+  copyCodexAgentSkills(join(home, ".codex"), options.agents);
   copySkills(join(home, ".claude"));
   copySkills(join(home, ".gemini"));
   copySkills(join(home, ".config", "opencode"));
@@ -164,6 +198,9 @@ function doctor() {
   const installedSkills = (destRoot) =>
     home ? skillNames.filter((name) => existsSync(join(destRoot, "skills", name, "SKILL.md"))) : [];
   const installedCodexSkills = installedSkills(join(home, ".codex"));
+  const installedCodexAgentSkills = home
+    ? agentNames.filter((name) => existsSync(join(home, ".codex", "skills", name, "SKILL.md")))
+    : [];
   const installedClaudeSkills = installedSkills(join(home, ".claude"));
   const installedGeminiSkills = installedSkills(join(home, ".gemini"));
   const installedOpencodeSkills = installedSkills(join(home, ".config", "opencode"));
@@ -180,6 +217,7 @@ function doctor() {
   installed_gemini_cli_agents: ${installedGeminiAgents.length}/6
   installed_opencode_agents: ${installedOpencodeAgents.length}/6
   installed_codex_skills: ${installedCodexSkills.length}/${skillNames.length}
+  installed_codex_agent_skills: ${installedCodexAgentSkills.length}/${agentNames.length}
   installed_claude_code_skills: ${installedClaudeSkills.length}/${skillNames.length}
   installed_gemini_cli_skills: ${installedGeminiSkills.length}/${skillNames.length}
   installed_opencode_skills: ${installedOpencodeSkills.length}/${skillNames.length}
