@@ -34,6 +34,10 @@ npx hush-agents install --agents fable,rook
 
 List: `npx hush-agents list-agents`.
 
+CLI output defaults to TOON for agent-readable summaries; add `--json` for
+scripts. `hush-agents` shows current repository context, and `--version` is a
+fast install check.
+
 ```sh
 npx hush-agents codex-register --agents fable,rook
 ```
@@ -79,10 +83,6 @@ Or invoke the full workflow skill:
 ```text
 $hush-agents run this PRD through the implementation and verification loop
 ```
-
-The useful result is not just passing tests. You get a chain of evidence:
-requirements, task graph, immutable packet, implementation report, verification
-report, alignment report, and acceptance record.
 
 ## Try The Runtime
 

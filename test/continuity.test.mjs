@@ -130,7 +130,7 @@ test("drain reports pause, no progress, and bounded backlog", () => {
 test("watch --drain drains through the CLI boundary", () => {
   const path = root();
   appendStateEvent(path, "RUN-1", { entity_type: "run", entity_id: "RUN-1", action: "future", actor: "fixture", cause: "test", timestamp: now, data: { event_type: "FUTURE_EVENT", status: "OPEN" } });
-  const result = spawnSync(process.execPath, [cli, "watch", "--run", "RUN-1", "--root", path, "--drain"], { encoding: "utf8" });
+  const result = spawnSync(process.execPath, [cli, "watch", "--run", "RUN-1", "--root", path, "--drain", "--json"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
   assert.equal(output.status, "DRAINED");
