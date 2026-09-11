@@ -8,6 +8,31 @@ import test from "node:test";
 const root = new URL("..", import.meta.url).pathname;
 const cli = join(root, "bin", "hush-agents.mjs");
 
+test("version fast path is bare and successful", () => {
+  for (const flag of ["-v", "-V", "--version"]) {
+    const result = spawnSync(process.execPath, [cli, flag], { encoding: "utf8" });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout.trim(), "0.3.3");
+    assert.equal(result.stderr, "");
+  }
+});
+
+test("no-argument home view exposes live repository context", () => {
+  const result = spawnSync(process.execPath, [cli], { cwd: root, encoding: "utf8" });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /bin: .*bin\/hush-agents\.mjs/);
+  assert.match(result.stdout, /description: Run traceable PRD-to-code workflows/);
+  assert.match(result.stdout, /profiles\[6\]\{name\}/);
+});
+
+test("unknown flags fail with a structured corrective hint", () => {
+  const result = spawnSync(process.execPath, [cli, "list-agents", "--stat"], { encoding: "utf8" });
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /error: unknown option --stat for list-agents/);
+  assert.match(result.stdout, /hush-agents list-agents --help/);
+  assert.equal(result.stderr, "");
+});
+
 test("ships six agent profiles", () => {
   for (const name of ["fable", "rook", "flint", "puck", "vera", "hush"]) {
     assert.equal(existsSync(join(root, "agents", `${name}.toml`)), true);
