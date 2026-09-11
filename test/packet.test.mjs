@@ -209,7 +209,7 @@ test("schema artifact lists required packet fields", () => {
 test("validate-packet CLI prints machine-readable valid status", () => {
   const packetPath = join(mkdtempSync(join(tmpdir(), "hush-packet-valid-")), "packet.json");
   writeFileSync(packetPath, JSON.stringify(basePacket()));
-  const result = spawnSync(process.execPath, [join(root, "bin", "hush-agents.mjs"), "validate-packet", packetPath], {
+  const result = spawnSync(process.execPath, [join(root, "bin", "hush-agents.mjs"), "validate-packet", packetPath, "--json"], {
     cwd: root,
     encoding: "utf8",
   });
@@ -223,7 +223,7 @@ test("validate-packet CLI exits nonzero with issue details for invalid packet", 
   const packet = { ...basePacket(), target_agent: "puck" };
   const packetPath = join(mkdtempSync(join(tmpdir(), "hush-packet-")), "invalid.json");
   writeFileSync(packetPath, JSON.stringify(packet));
-  const result = spawnSync(process.execPath, [join(root, "bin", "hush-agents.mjs"), "validate-packet", packetPath], {
+  const result = spawnSync(process.execPath, [join(root, "bin", "hush-agents.mjs"), "validate-packet", packetPath, "--json"], {
     cwd: root,
     encoding: "utf8",
   });
@@ -282,7 +282,7 @@ test("validate-packet CLI accepts context options for packet status checks", () 
     writeFileSync(packetPath, JSON.stringify(cliCase.packet));
     const result = spawnSync(
       process.execPath,
-      [join(root, "bin", "hush-agents.mjs"), "validate-packet", packetPath, ...cliCase.args],
+      [join(root, "bin", "hush-agents.mjs"), "validate-packet", packetPath, ...cliCase.args, "--json"],
       {
         cwd: root,
         encoding: "utf8",
