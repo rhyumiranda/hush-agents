@@ -160,9 +160,13 @@ boundaries, or individual recovery commands.
 | `PUCK_VERIFIED` | Verification router | Route Vera or acceptance |
 | `VERA_ALIGNED` | Queue handler | Enqueue accepted candidate |
 | `LEASE_EXPIRED` | Recovery handler | Block, retry with new packet, or request human decision |
+| `MERGE_ENQUEUED` | Merge handler | Integrate the accepted candidate and emit `READY_FOR_PR` |
 | `READY_FOR_PR` | Delivery adapter | Render or update PR payload |
+| `PR_CREATED` | Delivery timer handler | Schedule an identity-bound CI poll |
+| `CI_POLL_DUE` | Provider adapter | Read and bind GitHub CI result |
 | `CI_PASSED` | Acceptance handler | Record delivery readiness or merge according to policy |
 | `CI_FAILED` | Failure router | Route repair or human decision |
+| `MERGE_READY` | Protected merge handler | Verify branch protection and request auto-merge |
 | `HAZARD_CHANGED` | Safety handler | Invalidate affected packets and warm bases |
 | `CAPACITY_OBSERVED` | Scheduler | Recompute future admission limit |
 
@@ -173,17 +177,22 @@ hush-agents watch --run <id> --root <repo>
 hush-agents pause --run <id> --root <repo>
 hush-agents resume --run <id> --root <repo>
 hush-agents replay --run <id> --root <repo>
+hush-agents decide --run <id> --root <repo> --decision <retry|acknowledge> [--decision-id <id>]
 hush-agents run <prd-path> --repo <path> --target <branch> --config <run-config.json> [--resume <run-id>] [--dry-run] [--json] [--max-workers <n>]
 hush-agents observe-capacity --run <id> --root <repo> --available <n> --safe-limit <n> --confidence <level>
 hush-agents verify-write-paths --packet <file> --report <file>
 hush-agents render-pr --run <id> --root <repo>
+hush-agents merge-recover --root <repo> --repo <path> [--target <branch>]
+hush-agents merge-cleanup --root <repo> --repo <path> --item <id>
 ```
 
 Existing manual commands remain supported for recovery and diagnostics.
 
 The run configuration names the Fable, Rook, Flint, Puck, and Vera adapters,
 safe environment profile, target branch, setup commands, required gates, and
-artifact root. No implicit production credentials or service defaults are
+artifact root. Optional `delivery` configuration enables the GitHub provider:
+`enabled`, `repository_slug`, `head`, and optional `timeout_ms` or
+`auto_merge_policy`. No implicit production credentials or service defaults are
 allowed. JSON output includes the run ID, PRD revision, state, task counts,
 blockers, candidate and integration IDs, evidence IDs, and exit reason.
 

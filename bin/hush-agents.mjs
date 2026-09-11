@@ -9,9 +9,9 @@ import { PACKET_STATUS, validatePacket } from "../lib/runtime/packet.mjs";
 import { applyHashline, readHashline } from "../lib/runtime/hashline.mjs";
 import { dispatchOne, dispatchReadyTasks, recoverExpiredLeases, recoverInterruptedLeases, recordCapacityObservation, writeRunSummary } from "../lib/runtime/scheduler.mjs";
 import { allocateWorktree, createWorktree, listWorktrees, releaseWorktree, warmWorktree } from "../lib/runtime/worktree.mjs";
-import { abortMerge, enqueueCandidate, processNextMerge, queueStatus } from "../lib/runtime/merge-queue.mjs";
-import { pauseRun, replayRun, resumeRun, watchRun } from "../lib/runtime/watcher.mjs";
-import { renderPrPayload } from "../lib/runtime/delivery.mjs";
+import { abortMerge, cleanupIntegrationWorktree, enqueueCandidate, processNextMerge, queueStatus, recoverIntegrating } from "../lib/runtime/merge-queue.mjs";
+import { pauseRun, replayRun, resolveHumanDecision, resumeRun, watchRun } from "../lib/runtime/watcher.mjs";
+import { GhAxiAdapter, renderPrPayload } from "../lib/runtime/delivery.mjs";
 import { validateWritePathCoverage } from "../lib/runtime/evidence.mjs";
 import { replayRunState } from "../lib/runtime/state.mjs";
 import { RUN_EXIT_CODES, RunnerError, runWorkflow } from "../lib/runtime/runner.mjs";
@@ -43,6 +43,7 @@ function usage() {
   pause --run <id> --root <repo>,"pause automatic actions without deleting events","hush-agents pause --run RUN-1 --root ."
   resume --run <id> --root <repo>,"resume automatic actions from the durable cursor","hush-agents resume --run RUN-1 --root ."
   replay --run <id> --root <repo>,"replay the event log with idempotent action keys","hush-agents replay --run RUN-1 --root ."
+  decide --run <id> --root <repo> --decision <retry|acknowledge> [--decision-id <id>] [--reason <text>],"resolve a durable human decision","hush-agents decide --run RUN-1 --root . --decision retry"
   verify-write-paths --packet <file> --report <file>,"verify complete per-write-path evidence coverage","hush-agents verify-write-paths --packet packet.json --report report.json"
   render-pr --run <id> --root <repo>,"render a deterministic PR payload","hush-agents render-pr --run RUN-1 --root ."
   worktree-create --repo <path> --base <sha> --run <id> --task <id>,"create an owned worker worktree","hush-agents worktree-create --repo . --base HEAD --run RUN-1 --task TASK-1"
@@ -53,6 +54,8 @@ function usage() {
   merge-enqueue --root <repo> --repo <path> --run <id> --candidate <id> --target <branch>,"admit one evidence-complete candidate","hush-agents merge-enqueue --root . --repo . --run RUN-1 --candidate CAND-1 --target main"
   merge-status --repo <path> [--target <branch>],"show deterministic merge queue state","hush-agents merge-status --repo . --target main"
   merge-process --root <repo> --repo <path> --target <branch>,"integrate the next accepted candidate","hush-agents merge-process --root . --repo . --target main"
+  merge-recover --root <repo> --repo <path> [--target <branch>],"recover stale integration work","hush-agents merge-recover --root . --repo . --target main"
+  merge-cleanup --root <repo> --repo <path> --item <id>,"remove a clean completed integration worktree","hush-agents merge-cleanup --root . --repo . --item MQ-main-CAND-1"
   merge-abort --root <repo> --repo <path> --item <id> --reason <code>,"route an aborted queue item","hush-agents merge-abort --root . --repo . --item MQ-main-CAND-1 --reason HUMAN_ABORT"
   help,"show commands","hush-agents install"`);
 }
@@ -512,6 +515,10 @@ function runtimeArgs(args) {
       result.follow = true;
       continue;
     }
+    if (parsed.name === "--force" && parsed.value === undefined) {
+      result.force = true;
+      continue;
+    }
     const value = parsed.value ?? args[index + 1];
     if (parsed.value === undefined) index += 1;
     if (value === undefined) throw new Error(`option value is required: ${parsed.name}`);
@@ -537,6 +544,11 @@ function runtimeArgs(args) {
     else if (parsed.name === "--limit") result.limit = Number(value);
     else if (parsed.name === "--max-events") result.maxEvents = Number(value);
     else if (parsed.name === "--max-cycles") result.maxCycles = Number(value);
+    else if (parsed.name === "--decision") result.decision = value;
+    else if (parsed.name === "--decision-id") result.decisionId = value;
+    else if (parsed.name === "--provider-repo") result.providerRepository = value;
+    else if (parsed.name === "--pr") result.prId = value;
+    else if (parsed.name === "--ci-poll-at") result.ciPollAt = value;
     else if (parsed.name === "--once") result.iterations = 1;
     else throw new Error(`unknown option ${parsed.name}`);
   }
@@ -578,16 +590,26 @@ function mergeCommand(command, args) {
   if (command === "merge-enqueue") return enqueueCandidate(options);
   if (command === "merge-status") return queueStatus(options.repo, options.target);
   if (command === "merge-process") return processNextMerge({ ...options, integrationChecks: options.checks });
+  if (command === "merge-recover") return recoverIntegrating(options);
+  if (command === "merge-cleanup") return cleanupIntegrationWorktree(options);
   return abortMerge(options);
 }
 
 function continuityCommand(command, args) {
   const options = runtimeArgs(args);
   if (!options.runId) throw new Error("run id is required");
-  if (command === "watch") return watchRun(options.root, options.runId, options);
+  const deliveryOptions = options.providerRepository ? { ...options, deliveryAdapter: new GhAxiAdapter({ repository: options.root, repositorySlug: options.providerRepository }) } : options;
+  if (command === "watch") return watchRun(options.root, options.runId, deliveryOptions);
   if (command === "pause") return pauseRun(options.root, options.runId, options);
   if (command === "resume") return resumeRun(options.root, options.runId, options);
   if (command === "replay") return replayRun(options.root, options.runId, options);
+  if (command === "decide") {
+    if (!options.decisionId) {
+      const state = replayRunState(options.root, options.runId);
+      options.decisionId = Object.values(state.entities.human_decision ?? {}).find((item) => item.status === "HUMAN_DECISION_REQUIRED")?.id;
+    }
+    return resolveHumanDecision(options.root, options.runId, options);
+  }
   if (command === "render-pr") {
     const state = replayRunState(options.root, options.runId);
     const candidate = Object.values(state.entities.candidate ?? {}).sort((a, b) => String(a.id).localeCompare(String(b.id))).at(-1) ?? {};
@@ -646,7 +668,7 @@ else if (["run-state", "schedule", "schedule-once", "recover", "recover-interrup
   try { schedulerCommand(command, process.argv[3], process.argv.slice(4)); }
   catch (error) { console.log(JSON.stringify({ status: "READ_ERROR", issue: { rule: error.message } })); process.exit(2); }
 }
-else if (["watch", "pause", "resume", "replay", "render-pr"].includes(command)) {
+else if (["watch", "pause", "resume", "replay", "decide", "render-pr"].includes(command)) {
   try { console.log(JSON.stringify(await continuityCommand(command, process.argv.slice(3)))); }
   catch (error) { console.log(JSON.stringify({ status: "READ_ERROR", issue: { rule: error.message } })); process.exit(2); }
 }
@@ -658,13 +680,13 @@ else if (["worktree-create", "worktree-warm", "worktree-allocate", "worktree-rel
   try { console.log(JSON.stringify(worktreeCommand(command, process.argv.slice(3)))); }
   catch (error) { console.log(JSON.stringify({ status: "READ_ERROR", issue: { rule: error.message } })); process.exit(2); }
 }
-else if (["merge-enqueue", "merge-status", "merge-process", "merge-abort"].includes(command)) {
+else if (["merge-enqueue", "merge-status", "merge-process", "merge-recover", "merge-cleanup", "merge-abort"].includes(command)) {
   try { console.log(JSON.stringify(mergeCommand(command, process.argv.slice(3)))); }
   catch (error) { console.log(JSON.stringify({ status: "READ_ERROR", issue: { rule: error.message } })); process.exit(2); }
 }
 else if (command === "help" || command === "--help" || command === "-h") usage();
 else {
   console.log(`error: unknown command ${command}
-  help: valid commands are install, list-agents, codex-register, run, doctor, harness-adapter, validate-packet, hashline-read, hashline-patch, run-state, schedule, schedule-once, recover, recover-interrupted, observe-capacity, watch, pause, resume, replay, verify-write-paths, render-pr, worktree-create, worktree-warm, worktree-allocate, worktree-release, worktree-list, merge-enqueue, merge-status, merge-process, merge-abort, help`);
+  help: valid commands are install, list-agents, codex-register, run, doctor, harness-adapter, validate-packet, hashline-read, hashline-patch, run-state, schedule, schedule-once, recover, recover-interrupted, observe-capacity, watch, pause, resume, replay, decide, verify-write-paths, render-pr, worktree-create, worktree-warm, worktree-allocate, worktree-release, worktree-list, merge-enqueue, merge-status, merge-process, merge-recover, merge-cleanup, merge-abort, help`);
   process.exit(2);
 }

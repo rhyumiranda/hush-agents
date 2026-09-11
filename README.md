@@ -111,14 +111,18 @@ hush-agents run docs/prd.md --repo . --target main \
   --config .hush/run-config.json --json
 ```
 
-The JSON config names adapters, setup, hazards, capacity, and checks. Use
-`--dry-run` to validate without dispatch; use `--resume <run-id>` after an
-interruption. Exit `0` means local `READY_FOR_PR`, not a target-branch merge.
+The config names adapters, setup, hazards, capacity, and checks. Use
+`--dry-run` or `--resume <run-id>`. Optional `delivery.enabled`,
+`delivery.repository_slug`, and `delivery.head` enable `gh-axi` PR delivery.
 
-Adapter bridge: `hush-agents harness-adapter --harness <name> --agent <role>`.
-Use `codex`, `claude`, `gemini`, or `opencode`; set provider names in `pass_env`.
+```sh
+hush-agents watch --run RUN-1 --root . --drain
+hush-agents decide --run RUN-1 --root . --decision retry
+hush-agents merge-recover --root . --repo . --target main
+hush-agents merge-cleanup --root . --repo . --item MQ-main-CAND-1
+```
 
-Completed runs remove clean task worktrees; dirty ones remain for review.
+Use `--provider-repo owner/name` with `watch` for GitHub PR and CI delivery.
 
 ## The Crew
 

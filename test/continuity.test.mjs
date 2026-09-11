@@ -8,12 +8,12 @@ import test from "node:test";
 
 import { persistHazardInventory, validateEnvironment } from "../lib/runtime/environment.mjs";
 import { computeReportDigest, validateCheckCoverage } from "../lib/runtime/evidence.mjs";
-import { canAutoMerge, GhAxiAdapter, normalizeCiEvent, renderPrPayload, validateCiIdentity } from "../lib/runtime/delivery.mjs";
+import { canAutoMerge, deliverPullRequest, GhAxiAdapter, normalizeCiEvent, pollPullRequestCi, renderPrPayload, validateCiIdentity } from "../lib/runtime/delivery.mjs";
 import { validateRequirementRecord } from "../lib/runtime/requirements.mjs";
 import { capacityPolicy } from "../lib/runtime/scheduler.mjs";
-import { appendStateEvent, readStateEvents } from "../lib/runtime/state.mjs";
+import { appendStateEvent, readStateEvents, replayRunState } from "../lib/runtime/state.mjs";
 import { createMutationEvidence, mutationPolicyForRequirements, recordMutationEvidence, runStrykerPolicy, runVeraShell, summarizeStrykerReport, validateMutationPolicy, validateMutationReport, validateVeraShellCommand } from "../lib/runtime/verification.mjs";
-import { drainRun, pauseRun, replayRun, resumeRun, scheduleDurableTimer, watchOnce, watchRun, writeCursor } from "../lib/runtime/watcher.mjs";
+import { drainRun, pauseRun, replayRun, resolveHumanDecision, resumeRun, scheduleDurableTimer, watchOnce, watchRun, writeCursor } from "../lib/runtime/watcher.mjs";
 
 const now = "2026-09-10T02:00:00.000Z";
 const root = () => mkdtempSync(join(tmpdir(), "hush-continuity-"));
@@ -163,6 +163,60 @@ test("pause and resume keep the append-only event log and durable timers", () =>
   const resumed = watchOnce(path, "RUN-1", { now, handlers: { TASK_READY: () => "ok", TIMER_DUE: () => "due" } });
   assert.equal(resumed.status, "WATCHED");
   assert.ok(readStateEvents(path, "RUN-1").some((event) => event.entity_type === "timer" && event.action === "due"));
+});
+
+test("provider delivery records PR and CI continuity events", () => {
+  const path = root();
+  const prPayload = renderPrPayload({ run_id: "RUN-DELIVERY", candidate_id: "CAND-1", head: "feature/cand-1", target: "main" });
+  const adapter = {
+    createOrUpdatePr: () => ({ provider: "github", status: "CREATED", pr_number: 7, response_digest: "sha256:pr", command: ["gh-axi", "pr", "create"] }),
+    readCi: () => ({ provider: "github", event_type: "CI_PASSED", status: "CI_PASSED", identity: { pr_id: "7", commit_sha: "abc", workflow_id: "checks", report_digest: "sha256:report" }, report_digest: "sha256:report" }),
+  };
+  const source = appendStateEvent(path, "RUN-DELIVERY", { entity_type: "delivery", entity_id: "PR-RUN-DELIVERY-CAND-1", action: "pr-payload-rendered", actor: "hush", cause: "test", timestamp: now, data: { status: "READY_FOR_PR", payload: prPayload } });
+  const pr = deliverPullRequest(path, "RUN-DELIVERY", source, { adapter, now });
+  const ci = pollPullRequestCi(path, "RUN-DELIVERY", { event_id: "EVT-CI", data: { pr_id: pr.pr_id, expected_identity: { pr_id: "7", commit_sha: "abc", workflow_id: "checks", report_digest: "sha256:report" } }, timestamp: now }, { adapter, now });
+  const events = readStateEvents(path, "RUN-DELIVERY");
+
+  assert.equal(pr.status, "CREATED");
+  assert.equal(pr.pr_id, 7);
+  assert.equal(ci.status, "CI_PASSED");
+  assert.ok(events.some((event) => event.action === "pr-created" && event.data.status === "PR_OPEN"));
+  assert.ok(events.some((event) => event.action === "ci-passed" && event.data.pr_id === "7"));
+  assert.ok(events.some((event) => event.entity_type === "provider_event" && event.data.status === "CI_PASSED"));
+});
+
+test("watcher drains provider delivery stages without reprocessing its own records", () => {
+  const path = root();
+  const payload = renderPrPayload({ run_id: "RUN-WATCH-DELIVERY", candidate_id: "CAND-1", head: "feature/cand-1", target: "main" });
+  let creates = 0;
+  let polls = 0;
+  const adapter = {
+    createOrUpdatePr: () => { creates += 1; return { provider: "github", status: "CREATED", pr_number: 9, response_digest: "sha256:pr", command: ["gh-axi", "pr", "create"] }; },
+    readCi: () => { polls += 1; return { provider: "github", event_type: "CI_PASSED", status: "CI_PASSED", identity: { pr_id: "9", commit_sha: "abc", workflow_id: "checks", report_digest: "sha256:report" }, report_digest: "sha256:report" }; },
+  };
+  appendStateEvent(path, "RUN-WATCH-DELIVERY", { entity_type: "delivery", entity_id: "PR-RUN-WATCH-DELIVERY-CAND-1", action: "pr-payload-rendered", actor: "hush", cause: "test", timestamp: now, data: { status: "READY_FOR_PR", event_type: "READY_FOR_PR", payload, expected_identity: { pr_id: "9", commit_sha: "abc", workflow_id: "checks", report_digest: "sha256:report" } } });
+  const drained = drainRun(path, "RUN-WATCH-DELIVERY", { now, deliveryAdapter: adapter });
+  const events = readStateEvents(path, "RUN-WATCH-DELIVERY");
+
+  assert.equal(drained.status, "DRAINED");
+  assert.equal(creates, 1);
+  assert.equal(polls, 1);
+  assert.equal(events.filter((event) => event.action === "pr-created").length, 1);
+  assert.equal(events.filter((event) => event.action === "ci-passed").length, 1);
+});
+
+test("human decisions resolve and schedule an auditable retry", () => {
+  const path = root();
+  appendStateEvent(path, "RUN-DECISION", { entity_type: "task", entity_id: "TASK-1", action: "ready", actor: "fixture", cause: "test", timestamp: now, data: { event_type: "TASK_READY" } });
+  const blocked = watchOnce(path, "RUN-DECISION", { now, retryLimit: 0, handlers: { TASK_READY: () => { throw new Error("needs operator"); } } });
+  const decision = Object.values(replayRunState(path, "RUN-DECISION").entities.human_decision ?? {})[0];
+  const resolved = resolveHumanDecision(path, "RUN-DECISION", { decisionId: decision.id, decision: "retry", reason: "operator approved retry", now });
+  const state = replayRunState(path, "RUN-DECISION");
+
+  assert.equal(blocked.processed.at(-1).status, "HUMAN_DECISION_REQUIRED");
+  assert.equal(resolved.status, "RETRY_SCHEDULED");
+  assert.equal(state.entities.human_decision[decision.id].status, "RESOLVED");
+  assert.ok(Object.values(state.entities.timer).some((timer) => timer.kind === "DECISION_RETRY"));
 });
 
 test("source byte validation rejects stale source and quote mismatch", () => {
