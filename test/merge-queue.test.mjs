@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import { computeReportDigest } from "../lib/runtime/evidence.mjs";
 import { appendStateEvent } from "../lib/runtime/state.mjs";
-import { evidenceReuseDecision, enqueueCandidate, processNextMerge, queueStatus, acquireTargetLock, releaseTargetLock } from "../lib/runtime/merge-queue.mjs";
+import { cleanupIntegrationWorktree, evidenceReuseDecision, enqueueCandidate, mergeQueuePath, processNextMerge, queueStatus, acquireTargetLock, recoverIntegrating, releaseTargetLock } from "../lib/runtime/merge-queue.mjs";
 import { sealPacket } from "../lib/runtime/packet.mjs";
 
 function git(repo, ...args) { return execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim(); }
@@ -92,6 +92,9 @@ test("serializes target locks and records cherry-pick integration without touchi
   assert.equal(result.integration.source_commits[0], sourceSha);
   assert.equal(result.evidence_decision.decision, "REUSE_PRE_INTEGRATION");
   assert.equal(queueStatus(repo, "main")[0].status, "READY_FOR_PR");
+  const cleaned = cleanupIntegrationWorktree({ root: repo, repo, itemId: "MQ-main-GOOD", now: "2026-09-10T00:04:00.000Z" });
+  assert.equal(cleaned.status, "CLEANED");
+  assert.equal(existsSync(result.integration_worktree.path), false);
 });
 
 test("routes cherry-pick conflicts and integration-check failures", () => {
@@ -122,4 +125,18 @@ test("evidence reuse boundaries require targeted or full recheck", () => {
   assert.equal(evidenceReuseDecision(base, { ...base, patch_digest: "changed" }).decision, "TARGETED_RECHECK");
   assert.equal(evidenceReuseDecision(base, { ...base, changed_paths: ["lib/runtime/state.mjs"] }).decision, "FULL_RECHECK");
   assert.equal(evidenceReuseDecision({ ...base, dependency_closure: [] }, base).decision, "TARGETED_RECHECK");
+});
+
+test("recovers stale integration records back to the merge queue", () => {
+  const { repo } = repoFixture();
+  const item = { item_id: "MQ-main-STALE", run_id: "RUN-STALE", candidate_id: "CAND-STALE", target: "main", repository: repo, status: "INTEGRATING", integration_started_at: "2026-09-10T00:00:00.000Z", integration_path: join(repo, ".hush", "integration", "stale"), integration_branch: "hush/integration/MQ-main-STALE" };
+  const path = mergeQueuePath(repo);
+  mkdirSync(join(path, ".."), { recursive: true });
+  writeFileSync(path, `${JSON.stringify({ event_id: "MQE-1", action: "enqueued", data: { ...item, status: "READY_FOR_INTEGRATION" } })}\n${JSON.stringify({ event_id: "MQE-2", action: "integrating", data: item })}\n`, "utf8");
+
+  const result = recoverIntegrating({ root: repo, repo, target: "main", now: "2026-09-10T00:20:00.000Z" });
+
+  assert.equal(result.status, "RECOVERED");
+  assert.equal(result.recovered[0].status, "READY_FOR_INTEGRATION");
+  assert.equal(queueStatus(repo, "main")[0].status, "READY_FOR_INTEGRATION");
 });

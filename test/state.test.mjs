@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   STATE_ENTITY_TYPES,
   appendStateEvent,
+  claimAction,
   readStateEvents,
   replayRunState,
   replayStateEvents,
@@ -168,4 +169,17 @@ test("invalid event data is rejected before append or replay", () => {
       ]),
     /revision must be a positive integer/,
   );
+});
+
+test("action claims are atomic and expired claims become a new attempt", () => {
+  const root = tempRoot();
+  const first = claimAction(root, "RUN-CLAIM", { actionKey: "ACTION-1", sourceEventId: "EVT-1", eventType: "TASK_READY", leaseExpiresAt: "2026-09-10T00:05:00.000Z", now: "2026-09-10T00:00:00.000Z" });
+  const duplicate = claimAction(root, "RUN-CLAIM", { actionKey: "ACTION-1", sourceEventId: "EVT-1", eventType: "TASK_READY", leaseExpiresAt: "2026-09-10T00:05:00.000Z", now: "2026-09-10T00:01:00.000Z" });
+  const retry = claimAction(root, "RUN-CLAIM", { actionKey: "ACTION-1", sourceEventId: "EVT-1", eventType: "TASK_READY", leaseExpiresAt: "2026-09-10T00:15:00.000Z", now: "2026-09-10T00:06:00.000Z" });
+
+  assert.equal(first.status, "CLAIMED");
+  assert.equal(first.attempt, 1);
+  assert.equal(duplicate.status, "IN_FLIGHT");
+  assert.equal(retry.status, "CLAIMED");
+  assert.equal(retry.attempt, 2);
 });
