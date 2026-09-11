@@ -74,6 +74,16 @@ test("resume turns every interrupted worker lease back into retryable work", () 
   assert.equal(dispatchOne(path, runId, { now: "2026-09-10T00:02:00.000Z" }).dispatched.length, 1);
 });
 
+test("resume retries a task interrupted after Flint and before Puck", () => {
+  const path = root(); const runId = "RUN-VERIFIER-RESUME"; const p = packet(runId, "T-1");
+  seed(path, runId, [{ id: "T-1", packet_id: p.packet_id, status: "READY_FOR_PUCK" }], { [p.packet_id]: p });
+  const recovery = recoverInterruptedLeases(path, runId, { now: "2026-09-10T00:01:00.000Z" });
+  assert.equal(recovery.recovered[0].reason, "VERIFICATION_INTERRUPTED");
+  assert.equal(replayRunState(path, runId).entities.task["T-1"].status, "READY");
+  assert.equal(replayRunState(path, runId).entities.task["T-1"].attempt, 2);
+  assert.equal(dispatchOne(path, runId, { now: "2026-09-10T00:02:00.000Z" }).dispatched.length, 1);
+});
+
 test("packet defects do not consume implementation strikes", () => {
   const path = root(); const runId = "RUN-1"; const p = packet(runId, "T-1");
   seed(path, runId, [{ id: "T-1", packet_id: p.packet_id }], { [p.packet_id]: p });
