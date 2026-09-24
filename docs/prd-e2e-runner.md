@@ -48,6 +48,12 @@ hush-agents run <prd-path> \
 
 Run configuration names the harness adapters, safe environment profile, target branch, setup commands, required gates, and artifact root. No implicit production credentials or service defaults are allowed.
 
+To choose a model for each role, add `--model <name>` to the `harness-adapter` command of that role. For example, use a fast model for Fable, Rook, Puck, and Vera, and a strong model for Flint. The harness gets `--model <name>`. When you leave out the flag, the harness uses its default model.
+
+```json
+{ "adapters": { "vera": { "command": ["hush-agents", "harness-adapter", "--harness", "claude", "--agent", "vera", "--model", "haiku"] } } }
+```
+
 JSON summary must include run ID, PRD revision, state, task counts, current blockers, candidate/integration IDs, evidence IDs, and exit reason.
 
 The summary (`.hush/runs/<run-id>/runner-summary.json`) also contains a `usage` block. It shows the number of calls, the wall time, and the token counts for each role and for the whole run: uncached input, cache reads, cache writes, and output. It also shows the cost when the harness reports it. The `harness-adapter` bridge reads usage from Claude, Codex, Gemini, and OpenCode. A custom adapter can report usage in a top-level `hush_usage` object. Hush removes that object before it reads the role result.

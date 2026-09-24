@@ -41,6 +41,19 @@ test("harness prompt carries the task packet once, not twice", () => {
   }
 });
 
+test("an optional model reaches every harness as --model without displacing the prompt", () => {
+  for (const harness of SUPPORTED_HARNESSES) {
+    const plain = buildHarnessInvocation({ harness, role: "puck", payload, outputPath: "/tmp/last-message.json" });
+    const fast = buildHarnessInvocation({ harness, role: "puck", payload, outputPath: "/tmp/last-message.json", model: "fast-model-1" });
+    assert.equal(plain.args.includes("--model"), false, harness);
+    const at = fast.args.indexOf("--model");
+    assert.equal(fast.args[at + 1], "fast-model-1", harness);
+    assert.equal(fast.args.at(-1), plain.args.at(-1), `${harness} keeps the prompt or stdin marker last`);
+    assert.deepEqual(fast.args.filter((_, index) => index !== at && index !== at + 1), plain.args, harness);
+    assert.throws(() => buildHarnessInvocation({ harness, role: "puck", payload, outputPath: "/tmp/x", model: "--sandbox" }), /model must be/);
+  }
+});
+
 test("adapter output parser normalizes native text and JSON envelopes", () => {
   const result = { requirements: [{ requirement_id: "REQ-1" }] };
   assert.deepEqual(parseHarnessOutput({ harness: "codex", outputText: "```json\n" + JSON.stringify(result) + "\n```" }), result);

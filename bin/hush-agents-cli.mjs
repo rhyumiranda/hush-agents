@@ -130,7 +130,7 @@ const COMMAND_HELP = Object.freeze({
   "observe-capacity": "usage: hush-agents observe-capacity <run-id> --root <repo> --available-workers <n> --confidence HIGH [--json]",
   "verify-write-paths": "usage: hush-agents verify-write-paths --packet <file> --report <file> [--json]",
   "render-pr": "usage: hush-agents render-pr --run <id> --root <repo> [--json]",
-  "harness-adapter": "usage: hush-agents harness-adapter --harness <codex|claude|gemini|opencode> --agent <name> [--executable <path>] [--sandbox <mode>]",
+  "harness-adapter": "usage: hush-agents harness-adapter --harness <codex|claude|gemini|opencode> --agent <name> [--model <name>] [--executable <path>] [--sandbox <mode>]",
   "worktree-list": "usage: hush-agents worktree-list --repo <path> [--json]",
   "worktree-create": "usage: hush-agents worktree-create --repo <path> --base <sha> --run <id> --task <id> [--json]",
   "worktree-warm": "usage: hush-agents worktree-warm --repo <path> --base <sha> --profile <file> --packet <file> [--json]",
@@ -562,6 +562,7 @@ function harnessAdapterCommand(args) {
   let agent;
   let executable;
   let sandbox;
+  let model;
   for (let index = 0; index < args.length; index += 1) {
     const parsed = parseOption(args[index]);
     const value = parsed.value ?? args[index + 1];
@@ -570,6 +571,7 @@ function harnessAdapterCommand(args) {
     else if (parsed.name === "--agent") agent = value;
     else if (parsed.name === "--executable") executable = value;
     else if (parsed.name === "--sandbox") sandbox = value;
+    else if (parsed.name === "--model") model = value;
     else if (parsed.name) throw new Error(`unknown option ${parsed.name}`);
   }
   if (!SUPPORTED_HARNESSES.includes(harness)) throw new Error(`--harness must be one of ${SUPPORTED_HARNESSES.join(", ")}`);
@@ -578,7 +580,7 @@ function harnessAdapterCommand(args) {
   const tempRoot = mkdtempSync(join(tmpdir(), "hush-harness-adapter-"));
   const outputPath = join(tempRoot, "last-message.txt");
   try {
-    const invocation = buildHarnessInvocation({ harness, role: agent, payload: input, outputPath, executable, sandbox, profileText: loadBundledProfile(root, harness, agent) });
+    const invocation = buildHarnessInvocation({ harness, role: agent, payload: input, outputPath, executable, sandbox, model, profileText: loadBundledProfile(root, harness, agent) });
     const result = spawnSync(invocation.command, invocation.args, { cwd: input.worktree_path ?? input.repository ?? process.cwd(), input: invocation.input, encoding: "utf8", timeout: 10 * 60 * 1000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, HUSH_RUN_ID: input.run_id ?? "", HUSH_ROLE: agent } });
     if (result.error || result.status !== 0) throw new Error(`${harness} exited ${result.status ?? "with error"}: ${result.error?.message ?? result.stderr ?? "unknown error"}`);
     const outputText = existsSync(outputPath) ? readFileSync(outputPath, "utf8") : "";
