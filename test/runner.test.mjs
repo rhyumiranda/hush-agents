@@ -53,7 +53,11 @@ const report = (value) => { const next = { ...value }; delete next.report_digest
 const sourceDigest = input.requirements?.[0]?.source?.digest;
 let output;
 
-if (input.role === "fable") {
+if (input.role === "fable" && input.prd_text.includes("MODEL_SHAPED")) {
+  output = { requirements: [{ requirement_id: "REQ-1", quote: input.prd_text.trim(), expected_behavior: "produce result.txt", actor: "user", permissions: ["write result"], baseline_status: "REPORTED", enumeration_status: "EXHAUSTIVE", approval_state: "APPROVED", unknowns: [{ question: "exact newline style?", blocking: false }] }] };
+} else if (input.role === "rook" && input.requirements[0].quote.includes("MODEL_SHAPED")) {
+  output = { tasks: [{ task_id: "TASK-1", requirements: ["REQ-1"], dependencies: [], allowed_paths: ["result.txt"], write_paths: ["result.txt"], allowed_operations: ["create", "edit", "test"], blocked_paths: [], exclusive_hubs: [], required_commands: ["node --version"], acceptance_checks: [{ check_id: "CHECK-1", requirement_ids: ["REQ-1"], write_paths: ["result.txt"], executor: "puck", command: "node --version", expected_result: "pass", evidence_artifact_id: "ART-1" }], expected_evidence: ["ART-1"], vera_required: true }] };
+} else if (input.role === "fable") {
   const quote = input.prd_text.trim();
   const source = { path: input.prd_path, location: input.source_manifest.location, digest: input.prd_digest };
   output = { requirements: [{ requirement_id: "REQ-1", revision: 1, source, quote, expected_behavior: "produce result.txt", actor: "user", permissions: ["write result"], baseline_status: "REPORTED", enumeration_status: "EXHAUSTIVE", approval_state: "APPROVED", risk: input.prd_text.includes("HIGH_RISK") ? "HIGH" : undefined, tags: input.prd_text.includes("HIGH_RISK") ? ["FABLE-HIGH-RISK"] : undefined, unknowns: input.prd_text.includes("AMBIGUOUS") ? ["clarify expected output"] : [], source_discovery: { method: "fixture-read", ...source, status: "VERIFIED" }, quote_back: { quote, location: source.location, digest: source.digest, verified: true } }] };
@@ -80,13 +84,13 @@ process.stdout.write(JSON.stringify(output));
 `;
 }
 
-function setupFixture({ ambiguous = false, highRisk = false } = {}) {
+function setupFixture({ ambiguous = false, highRisk = false, modelShaped = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), "hush-runner-"));
   const repo = join(root, "repo");
   execFileSync("git", ["init", "-b", "main", repo], { encoding: "utf8" });
   git(repo, "config", "user.email", "hush@example.test");
   git(repo, "config", "user.name", "Hush Test");
-  writeFileSync(join(repo, "prd.md"), ambiguous ? "AMBIGUOUS requirement\\n" : highRisk ? "HIGH_RISK requirement\\n" : "Implement result output.\\n");
+  writeFileSync(join(repo, "prd.md"), modelShaped ? "MODEL_SHAPED requirement\\n" : ambiguous ? "AMBIGUOUS requirement\\n" : highRisk ? "HIGH_RISK requirement\\n" : "Implement result output.\\n");
   git(repo, "add", "prd.md");
   git(repo, "commit", "-m", "docs: add prd");
 
@@ -162,4 +166,16 @@ test("run blocks high-risk work when committed mutation configuration is absent"
   assert.equal(summary.status, "BLOCKED");
   assert.equal(summary.blockers.task_id, "TASK-1");
   assert.match(summary.blockers.reason, /MUTATION_CONFIG_MISSING|MUTATION_CHECK_FAILED/);
+});
+
+test("run accepts model-shaped Fable and Rook results and Hush fills the bookkeeping", () => {
+  const fixture = setupFixture({ modelShaped: true });
+  const result = run(["run", "prd.md", "--repo", fixture.repo, "--target", "main", "--config", fixture.config, "--json"], fixture.repo);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const state = replayRunState(fixture.repo, JSON.parse(result.stdout).run_id);
+  const requirement = state.entities.requirement["REQ-1"];
+  assert.deepEqual([requirement.source.location, requirement.quote_back.verified, requirement.revision], ["prd.md:1", true, 1]);
+  const packet = state.entities.packet["PKT-TASK-1"];
+  assert.deepEqual([packet.contract_version, packet.target_agent, packet.dependencies, packet.source_refs[0].manifest_digest], ["hec.v1", "flint", [], requirement.source.digest]);
+  assert.equal(state.entities.task["TASK-1"].status, "ACCEPTED");
 });

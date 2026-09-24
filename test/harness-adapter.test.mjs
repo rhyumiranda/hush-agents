@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { HARNESS_USAGE_KEY, SUPPORTED_HARNESSES, buildHarnessInvocation, parseHarnessOutput, parseHarnessUsage } from "../lib/runtime/harness-adapter.mjs";
+import { HARNESS_USAGE_KEY, REPORT_DIGEST_COMMAND, SUPPORTED_HARNESSES, buildHarnessInvocation, parseHarnessOutput, parseHarnessUsage, resultSchemaFor } from "../lib/runtime/harness-adapter.mjs";
 
 const payload = { role: "fable", run_id: "RUN-1", repository: process.cwd(), prd_text: "test" };
 const cli = join(process.cwd(), "bin", "hush-agents.mjs");
@@ -24,10 +24,35 @@ test("only Flint receives a writable native harness mode by default", () => {
     const readOnly = buildHarnessInvocation({ harness, role: "puck", payload, outputPath: "/tmp/last-message.json" });
     const writable = buildHarnessInvocation({ harness, role: "flint", payload, outputPath: "/tmp/last-message.json" });
     if (harness !== "opencode") {
-      assert.doesNotMatch(readOnly.args.join(" "), /workspace-write|auto_edit|dontAsk/);
-      assert.match(writable.args.join(" "), /workspace-write|auto_edit|dontAsk/);
+      assert.doesNotMatch(readOnly.args.join(" "), /workspace-write|auto_edit|acceptEdits/);
+      assert.match(writable.args.join(" "), /workspace-write|auto_edit|acceptEdits/);
     }
   }
+});
+
+test("claude roles get exact allowlists: Flint edits and commits, Puck runs checks, both gates get only their calculators", () => {
+  const packet = { required_commands: ["npm test"], acceptance_checks: [{ command: "npm test" }, { command: "node --test test/a.test.js" }] };
+  const argsFor = (role) => buildHarnessInvocation({ harness: "claude", role, payload: { ...payload, packet }, outputPath: "/tmp/x" }).args.join(" ");
+  const flint = argsFor("flint");
+  assert.match(flint, /--permission-mode acceptEdits/);
+  for (const tool of ["Bash(npm test)", "Bash(node --test test/a.test.js)", "Bash(git commit *)"]) assert.ok(flint.includes(tool), tool);
+  const puck = argsFor("puck");
+  assert.match(puck, /--permission-mode dontAsk --allowedTools Bash\(npm test\) Bash\(node --test test\/a\.test\.js\) /);
+  for (const tool of ["Bash(shasum -a 256 *)", `Bash(${REPORT_DIGEST_COMMAND} *)`]) assert.ok(puck.includes(tool), tool);
+  assert.doesNotMatch(puck, /acceptEdits|git commit/);
+  const vera = argsFor("vera");
+  assert.match(vera, /--permission-mode dontAsk/);
+  assert.ok(vera.includes(`Bash(${REPORT_DIGEST_COMMAND} *)`));
+  assert.doesNotMatch(vera, /acceptEdits|git commit|npm test/);
+});
+
+test("report-digest prints the digest that Hush recomputes, ignoring any report_digest already present", async () => {
+  const { computeReportDigest } = await import("../lib/runtime/evidence.mjs");
+  const report = { gate: "PUCK", verdict: "PASS", check_results: [{ check_id: "C1", exit_status: 0 }] };
+  const run = spawnSync(process.execPath, [cli, "report-digest", "--report", JSON.stringify({ ...report, report_digest: "sha256:guess" })], { encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(run.stdout.trim(), computeReportDigest(report));
+  assert.ok(REPORT_DIGEST_COMMAND.endsWith(" report-digest") && REPORT_DIGEST_COMMAND.includes("hush-agents.mjs"));
 });
 
 test("harness prompt carries the task packet once, not twice", () => {
@@ -52,6 +77,20 @@ test("an optional model reaches every harness as --model without displacing the 
     assert.deepEqual(fast.args.filter((_, index) => index !== at && index !== at + 1), plain.args, harness);
     assert.throws(() => buildHarnessInvocation({ harness, role: "puck", payload, outputPath: "/tmp/x", model: "--sandbox" }), /model must be/);
   }
+});
+
+test("a role result schema is enforced by claude and codex and stays strict-mode compatible", () => {
+  const claude = buildHarnessInvocation({ harness: "claude", role: "fable", payload, outputPath: "/tmp/x" });
+  assert.deepEqual(JSON.parse(claude.args[claude.args.indexOf("--json-schema") + 1]), resultSchemaFor("fable"));
+  assert.equal(claude.args.includes("--agent"), false, "claude --agent silently turns off --json-schema");
+  const codex = buildHarnessInvocation({ harness: "codex", role: "fable", payload, outputPath: "/tmp/x", schemaPath: "/tmp/schema.json" });
+  assert.equal(codex.args[codex.args.indexOf("--output-schema") + 1], "/tmp/schema.json");
+  assert.equal(buildHarnessInvocation({ harness: "claude", role: "flint", payload, outputPath: "/tmp/x" }).args.includes("--json-schema"), false);
+  const strictObjects = (schema) => schema.type !== "object" || (schema.additionalProperties === false && JSON.stringify(Object.keys(schema.properties).sort()) === JSON.stringify([...schema.required].sort()) && Object.values(schema.properties).every(strictItems));
+  const strictItems = (schema) => schema.type === "array" ? strictItems(schema.items) : strictObjects(schema);
+  for (const role of ["fable", "rook", "puck", "vera"]) assert.equal(strictItems(resultSchemaFor(role)), true, `${role}: codex --output-schema needs every object to require all of its properties and set additionalProperties false`);
+  const result = { requirements: [{ requirement_id: "R-01" }] };
+  assert.deepEqual(parseHarnessOutput({ harness: "claude", stdout: JSON.stringify({ type: "result", result: '{"requirements":[}]', structured_output: result }) }), result);
 });
 
 test("adapter output parser normalizes native text and JSON envelopes", () => {

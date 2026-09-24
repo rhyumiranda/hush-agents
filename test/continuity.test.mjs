@@ -9,7 +9,7 @@ import test from "node:test";
 import { persistHazardInventory, validateEnvironment } from "../lib/runtime/environment.mjs";
 import { computeReportDigest, validateCheckCoverage, validateGateReport } from "../lib/runtime/evidence.mjs";
 import { canAutoMerge, deliverPullRequest, GhAxiAdapter, normalizeCiEvent, pollPullRequestCi, renderPrPayload, validateCiIdentity } from "../lib/runtime/delivery.mjs";
-import { validateRequirementRecord } from "../lib/runtime/requirements.mjs";
+import { completeRequirementSource, validateRequirementRecord } from "../lib/runtime/requirements.mjs";
 import { capacityPolicy } from "../lib/runtime/scheduler.mjs";
 import { appendStateEvent, readStateEvents, replayRunState } from "../lib/runtime/state.mjs";
 import { createMutationEvidence, mutationPolicyForRequirements, recordMutationEvidence, runStrykerPolicy, runStrykerPolicyAsync, runVeraShell, summarizeStrykerReport, validateMutationPolicy, validateMutationReport, validateVeraShellCommand } from "../lib/runtime/verification.mjs";
@@ -229,6 +229,18 @@ test("source byte validation rejects stale source and quote mismatch", () => {
   assert.equal(validateRequirementRecord(record, { root: path }), null);
   writeFileSync(join(path, "docs", "prd.md"), "changed source\n");
   assert.equal(validateRequirementRecord(record, { root: path }).field, "source");
+});
+
+test("Hush fills Fable source bookkeeping from the PRD bytes and rejects a paraphrased quote", () => {
+  const text = "# Checkout\n\n- Code `SAVE10` takes 10% off.\n";
+  const prd = { path: "docs/prd.md", text, digest: sha(text) };
+  const drafted = { requirement_id: "R-02", quote: "Code `SAVE10` takes 10% off.", expected_behavior: "10% off", actor: "shopper", permissions: ["none"], baseline_status: "REPORTED", enumeration_status: "EXHAUSTIVE", approval_state: "APPROVED", unknowns: [], source: { path: "docs/prd.md", location: "?", digest: "UNKNOWN - no hashing tool" } };
+  const { record, quoteFound } = completeRequirementSource(drafted, prd);
+  assert.equal(quoteFound, true);
+  assert.deepEqual(record.source, { path: "docs/prd.md", location: "docs/prd.md:3", digest: sha(text) });
+  assert.equal(record.revision, 1);
+  assert.equal(validateRequirementRecord(record, { sourceText: text }), null);
+  assert.equal(completeRequirementSource({ ...drafted, quote: "SAVE10 gives 10 percent off" }, prd).quoteFound, false);
 });
 
 test("hazard freshness blocks missing or stale inventory", () => {

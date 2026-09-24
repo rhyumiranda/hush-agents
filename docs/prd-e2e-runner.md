@@ -60,6 +60,25 @@ The summary (`.hush/runs/<run-id>/runner-summary.json`) also contains a `usage` 
 
 Tasks run as a pool. When any task finishes, the runner admits the next ready task, up to `max_workers`. The worktree setup commands of parallel tasks run at the same time.
 
+### Role results through `harness-adapter`
+
+Each role prompt contains the exact JSON result that the runner validates. Claude (`--json-schema`) and Codex (`--output-schema`) also enforce it as a schema, so a long result cannot come back as broken JSON. Claude runs a role that has a schema without `--agent`, because `--agent` turns the schema off. The profile text is already in the prompt.
+
+- **Fable** returns only what it decides: `requirement_id`, the exact `quote`, `expected_behavior`, `actor`, `permissions`, the three states, and `unknowns` (`{question, blocking}`). Hush fills `revision`, `source`, `source_discovery`, and `quote_back` from the PRD bytes. The location is the PRD line of the quote.
+- **Rook** returns planning fields for each task. Hush builds and seals the packet, because Hush issues packets. The packet `dependencies` is `[]` at issuance, and the task-level `dependencies` order the tasks.
+- **Puck and Vera** copy every binding from the request and seal their own `report_digest` with `hush-agents report-digest --report '<json>'`. `agents/hush.toml` requires that gates supply their bindings and digest. The command gives them a real calculator.
+
+On Claude, each role gets an exact allowlist:
+
+- Flint: `acceptEdits` plus the packet commands, `git add`, and `git commit`.
+- Puck: `dontAsk` plus the packet commands, `shasum -a 256`, and `report-digest`.
+- Vera: `dontAsk` plus `shasum -a 256` and `report-digest`.
+- Fable and Rook: `plan`.
+
+Flint, Puck, and Vera get the requirement records of their task, not only the IDs.
+
+`node tools/sandbox.mjs --harness <name>` builds `../hush-sandbox` for a live run. The first accepted live run on Claude had 2 parallel tasks. It took about 8 min and cost $6.28.
+
 ## Failure behavior
 
 - Invalid input: exit `2`, no run dispatch.
