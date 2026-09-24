@@ -15,7 +15,7 @@ function git(repo, ...args) {
   return execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
 }
 
-function parallelAdapter() {
+function parallelAdapter({ slowFlintTask = null } = {}) {
   return `
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -35,7 +35,7 @@ log("start");
 if (input.role === "flint" && crashPath) {
   try { writeFileSync(crashPath, "crashed\\n", { flag: "wx" }); process.kill(process.ppid, "SIGKILL"); } catch {}
 }
-if (["flint", "puck", "vera"].includes(input.role)) wait(60);
+if (["flint", "puck", "vera"].includes(input.role)) wait(input.role === "flint" && input.task_id === ${JSON.stringify(slowFlintTask)} ? 2500 : 60);
 const number = Number(String(input.task_id ?? "TASK-0").split("-").at(-1));
 let output;
 if (input.role === "fable") {
@@ -68,7 +68,7 @@ process.stdout.write(JSON.stringify(output));
 `;
 }
 
-function setupFixture({ crashPath = null } = {}) {
+function setupFixture({ crashPath = null, maxWorkers = null, slowFlintTask = null } = {}) {
   const taskCount = 4;
   const root = mkdtempSync(join(tmpdir(), "hush-runner-parallel-"));
   const repo = join(root, "repo");
@@ -81,7 +81,7 @@ function setupFixture({ crashPath = null } = {}) {
 
   const logPath = join(root, "adapter-events.jsonl");
   const adapter = join(root, "adapter.mjs");
-  writeFileSync(adapter, parallelAdapter());
+  writeFileSync(adapter, parallelAdapter({ slowFlintTask }));
   const profile = join(root, "setup-profile.json");
   writeFileSync(profile, JSON.stringify({ setup_commands: [] }));
   const environment = {
@@ -90,7 +90,7 @@ function setupFixture({ crashPath = null } = {}) {
   };
   const command = [process.execPath, adapter, logPath, String(taskCount), ...(crashPath ? [crashPath] : [])];
   const config = join(root, "run-config.json");
-  writeFileSync(config, JSON.stringify({ setup_profile: profile, environment, max_workers: taskCount, capacity: { available_workers: taskCount, safe_limit: taskCount, confidence: "HIGH", observed_at: "2026-09-10T00:00:00.000Z" }, integration_checks: ["git status --porcelain"], adapters: Object.fromEntries(["fable", "rook", "flint", "puck", "vera"].map((role) => [role, { command }])) }, null, 2));
+  writeFileSync(config, JSON.stringify({ setup_profile: profile, environment, max_workers: maxWorkers ?? taskCount, capacity: { available_workers: taskCount, safe_limit: taskCount, confidence: "HIGH", observed_at: "2026-09-10T00:00:00.000Z" }, integration_checks: ["git status --porcelain"], adapters: Object.fromEntries(["fable", "rook", "flint", "puck", "vera"].map((role) => [role, { command }])) }, null, 2));
   return { root, repo, config, logPath, taskCount };
 }
 
@@ -129,6 +129,18 @@ test("runner dispatches independent tasks concurrently and delivers every candid
     assert.equal(existsSync(join(integrationRoot, matching, `result-${index}.txt`)), true);
   }
   assert.equal(listWorktrees(fixture.repo).filter((worktree) => worktree.state === "DESTROYED").length, fixture.taskCount);
+});
+
+test("runner admits the next task as soon as a worker slot frees, without waiting for the slowest task", () => {
+  const fixture = setupFixture({ maxWorkers: 2, slowFlintTask: "TASK-1" });
+  const result = spawnSync(process.execPath, [runner, "run", "prd.md", "--repo", fixture.repo, "--target", "main", "--config", fixture.config, "--json"], { cwd: fixture.repo, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const at = {};
+  for (const line of readFileSync(fixture.logPath, "utf8").trim().split("\n")) {
+    const event = JSON.parse(line);
+    if (event.role === "flint") at[`${event.task_id}:${event.phase}`] = event.at;
+  }
+  assert.ok(at["TASK-3:start"] < at["TASK-1:end"], "TASK-3 must start while slow TASK-1 still holds its slot");
 });
 
 test("runner resumes after the parent process is killed during parallel adapter execution", () => {
