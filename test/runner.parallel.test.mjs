@@ -15,7 +15,7 @@ function git(repo, ...args) {
   return execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
 }
 
-function parallelAdapter({ slowFlintTask = null } = {}) {
+function parallelAdapter({ slowFlintTask = null, crashRole = "flint" } = {}) {
   return `
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -32,7 +32,7 @@ const report = (value) => { const next = { ...value }; delete next.report_digest
 const log = (phase) => appendFileSync(logPath, JSON.stringify({ phase, role: input.role, task_id: input.task_id, at: Date.now() }) + "\\n");
 const wait = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 log("start");
-if (input.role === "flint" && crashPath) {
+if (input.role === ${JSON.stringify(crashRole)} && crashPath) {
   try { writeFileSync(crashPath, "crashed\\n", { flag: "wx" }); process.kill(process.ppid, "SIGKILL"); } catch {}
 }
 if (["flint", "puck", "vera"].includes(input.role)) wait(input.role === "flint" && input.task_id === ${JSON.stringify(slowFlintTask)} ? 2500 : 60);
@@ -68,7 +68,7 @@ process.stdout.write(JSON.stringify(output));
 `;
 }
 
-function setupFixture({ crashPath = null, maxWorkers = null, slowFlintTask = null } = {}) {
+function setupFixture({ crashPath = null, crashRole = "flint", maxWorkers = null, slowFlintTask = null } = {}) {
   const taskCount = 4;
   const root = mkdtempSync(join(tmpdir(), "hush-runner-parallel-"));
   const repo = join(root, "repo");
@@ -81,7 +81,7 @@ function setupFixture({ crashPath = null, maxWorkers = null, slowFlintTask = nul
 
   const logPath = join(root, "adapter-events.jsonl");
   const adapter = join(root, "adapter.mjs");
-  writeFileSync(adapter, parallelAdapter({ slowFlintTask }));
+  writeFileSync(adapter, parallelAdapter({ slowFlintTask, crashRole }));
   const profile = join(root, "setup-profile.json");
   writeFileSync(profile, JSON.stringify({ setup_commands: [] }));
   const environment = {
@@ -157,4 +157,22 @@ test("runner resumes after the parent process is killed during parallel adapter 
   assert.equal(Object.values(state.entities.task).every((task) => task.status === "ACCEPTED"), true);
   assert.equal(Object.values(state.entities.task).some((task) => task.attempt > 1), true);
   assert.equal(listWorktrees(fixture.repo).some((worktree) => worktree.state === "ALLOCATED"), false);
+});
+
+test("resume after an interrupted verification reuses the frozen Flint candidate instead of implementing again", () => {
+  const root = mkdtempSync(join(tmpdir(), "hush-runner-crash-puck-"));
+  const fixture = setupFixture({ crashPath: join(root, "crash-once"), crashRole: "puck", maxWorkers: 1 });
+  const args = ["run", "prd.md", "--repo", fixture.repo, "--target", "main", "--config", fixture.config, "--json"];
+  const first = spawnSync(process.execPath, [runner, ...args], { cwd: fixture.repo, encoding: "utf8", timeout: 20_000 });
+  assert.equal(first.signal, "SIGKILL");
+  const [runId] = readdirSync(join(fixture.repo, ".hush", "runs"));
+  assert.equal(replayRunState(fixture.repo, runId).entities.task["TASK-1"].status, "READY_FOR_PUCK");
+  const resumed = spawnSync(process.execPath, [runner, ...args, "--resume", runId], { cwd: fixture.repo, encoding: "utf8", timeout: 20_000 });
+  assert.equal(resumed.status, 0, resumed.stderr || resumed.stdout);
+  const starts = readFileSync(fixture.logPath, "utf8").trim().split("\n").map((line) => JSON.parse(line)).filter((event) => event.phase === "start" && event.task_id === "TASK-1");
+  assert.equal(starts.filter((event) => event.role === "flint").length, 1, "Flint must not implement TASK-1 a second time");
+  assert.equal(starts.filter((event) => event.role === "puck").length, 2, "Puck must verify again after the interrupt");
+  const state = replayRunState(fixture.repo, runId);
+  assert.equal(Object.values(state.entities.task).every((task) => task.status === "ACCEPTED"), true);
+  assert.equal(state.entities.task["TASK-1"].reused_candidate_id, "CAND-TASK-1");
 });
