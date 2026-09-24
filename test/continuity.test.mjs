@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -458,7 +458,8 @@ test("Stryker runner records pass and durable failures with exact bindings", () 
   const timeoutFixture = mutationFixture({ writeReport: false, sleepSeconds: 10 });
   mkdirSync(join(timeoutFixture.cwd, "reports"));
   writeFileSync(join(timeoutFixture.cwd, "reports", "mutation.json"), JSON.stringify(mutationReport()));
-  const timedOut = runStrykerPolicy({ ...timeoutFixture, timeoutMs: 1000, changedPaths: ["src/a.js"] });
+  // timeoutMs also covers the version check. Under full-suite load, 1000ms was not enough (spawnSync npx ETIMEDOUT).
+  const timedOut = runStrykerPolicy({ ...timeoutFixture, timeoutMs: 2000, changedPaths: ["src/a.js"] });
   assert.equal(timedOut.status, "FAIL");
   assert.equal(timedOut.timed_out, true);
   assert.equal(timedOut.exit_status, null);
@@ -488,12 +489,14 @@ test("async Stryker runner matches sync evidence and lets parallel runs overlap"
   mkdirSync(join(timeoutFixture.cwd, "reports"));
   writeFileSync(join(timeoutFixture.cwd, "reports", "mutation.json"), JSON.stringify(mutationReport()));
   const timeoutStarted = Date.now();
-  const timedOut = await runStrykerPolicyAsync({ ...timeoutFixture, timeoutMs: 500, changedPaths });
+  // timeoutMs also covers the version check, so keep it well above process start time on a loaded machine.
+  const timedOut = await runStrykerPolicyAsync({ ...timeoutFixture, timeoutMs: 3000, changedPaths });
   assert.deepEqual([timedOut.status, timedOut.timed_out, timedOut.exit_status], ["FAIL", true, null]);
-  assert.ok(Date.now() - timeoutStarted < 5000, "a grandchild that holds the pipes must not delay the timeout");
-  const overlapStarted = Date.now();
-  await Promise.all([mutationFixture({ sleepSeconds: 2 }), mutationFixture({ sleepSeconds: 2 })].map((slow) => runStrykerPolicyAsync({ ...slow, changedPaths })));
-  assert.ok(Date.now() - overlapStarted < 3500, "two 2s mutation runs must overlap; one after another they take at least 4s");
+  assert.ok(Date.now() - timeoutStarted < 9000, "the grandchild sleeps 10s; if it held the result open, this call would take at least 10s");
+  const overlapLog = join(root(), "overlap.log");
+  const logged = (fixture) => ({ ...fixture, env: { ...fixture.env, OVERLAP_LOG: overlapLog }, command: 'echo start >> "$OVERLAP_LOG"; sleep 2; echo end >> "$OVERLAP_LOG"; mkdir -p reports; printf %s "$HUSH_MUTATION_REPORT" > "$HUSH_REPORT_PATH"' });
+  await Promise.all([mutationFixture(), mutationFixture()].map((fixture) => runStrykerPolicyAsync({ ...logged(fixture), changedPaths })));
+  assert.deepEqual(readFileSync(overlapLog, "utf8").trim().split("\n"), ["start", "start", "end", "end"], "both mutation runs must be in flight at the same time");
 });
 
 test("Stryker summary handles empty, ignored, unrecognized, and array report shapes", () => {
