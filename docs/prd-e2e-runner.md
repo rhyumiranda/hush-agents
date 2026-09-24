@@ -67,7 +67,7 @@ Tasks run as a pool. When any task finishes, the runner admits the next ready ta
 - Environment hazard: exit `4`, no application boot.
 - Implementation/verification failure: exit `5`, preserve evidence and repair route.
 - Successful acceptance: exit `0` only after integration checks and required gates.
-- Interrupted process: append interruption event; `--resume` recovers leases and continues safely.
+- Interrupted process: append interruption event; `--resume` recovers leases and continues safely. If the interrupt happened after Hush froze the Flint candidate, resume fast-forwards a new worktree to that candidate, records a `flint-reused` task event, and runs verification again. It does not call Flint a second time.
 
 ## Implementation slices
 
