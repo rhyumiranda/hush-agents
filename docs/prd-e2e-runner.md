@@ -28,7 +28,7 @@ Provide one command that initializes a run, invokes the configured Fable/Rook/Fl
 | E2E-003 | Runner invokes Fable and refuses scheduling when blocking unknowns remain. | Ambiguous fixture stops at Fable with clear questions. |
 | E2E-004 | Runner invokes Rook and validates task graph, hub ownership, and dependency coverage. | Missing requirement/task coverage blocks dispatch. |
 | E2E-005 | Runner delegates ready tasks through the scheduler and worktree pool. | Flint receives a packet-bound isolated worktree. |
-| E2E-006 | Runner routes candidates to Puck and required Vera using frozen snapshots. | Gate reports bind to packet, snapshot, and digests. Hush fills each missing binding field, seals `report_digest` and the Rook packet `digest`, and keeps each binding field that the gate supplied, so a wrong binding still blocks. |
+| E2E-006 | Runner routes candidates to Puck and required Vera using frozen snapshots. | Gate reports bind to packet, snapshot, and digests. Each Puck or Vera report must carry every binding field and its own correct `report_digest`, or Hush rejects it. Hush seals the Rook packet `digest`, because Hush issues the packets. |
 | E2E-007 | Runner sends failures to the correct repair path and resumes from state after restart. | Failure fixture resumes without duplicating completed evidence. |
 | E2E-008 | Runner passes accepted candidates to the merge queue and integration checks. | Integration outcome appears in the acceptance record. |
 | E2E-009 | Runner exits with stable codes: success, blocked, failed, human decision, or invalid input. | CLI code and JSON summary match run state. |

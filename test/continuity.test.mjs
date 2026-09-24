@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { persistHazardInventory, validateEnvironment } from "../lib/runtime/environment.mjs";
-import { bindGateReport, computeReportDigest, validateCheckCoverage, validateGateReport } from "../lib/runtime/evidence.mjs";
+import { computeReportDigest, validateCheckCoverage, validateGateReport } from "../lib/runtime/evidence.mjs";
 import { canAutoMerge, deliverPullRequest, GhAxiAdapter, normalizeCiEvent, pollPullRequestCi, renderPrPayload, validateCiIdentity } from "../lib/runtime/delivery.mjs";
 import { validateRequirementRecord } from "../lib/runtime/requirements.mjs";
 import { capacityPolicy } from "../lib/runtime/scheduler.mjs";
@@ -399,18 +399,16 @@ test("mutation evidence binds exact sources and rejects every binding or verdict
   assert.equal(defaultRecorded.cause, "mutation-check");
 });
 
-test("Hush binds gate reports so the model never copies or computes digests", () => {
+test("gate reports must carry every binding and their own correct report digest", () => {
   const packet = { packet_id: "P1", source_refs: [{ manifest_digest: sha("source") }] };
   const snapshot = { snapshot_id: "S1", tree_digest: sha("tree"), diff_digest: sha("diff") };
   const candidate = { candidate_id: "C1", patch_digest: sha("patch") };
-  const bind = (report) => bindGateReport(report, { gate: "puck", packet, snapshot, candidate, runId: "R1" });
-  const minimal = bind({ verdict: "PASS", report_digest: "sha256:model-guess", candidate_diff_digest: "", snapshot_id: null });
-  assert.deepEqual(validateGateReport(minimal, packet, snapshot, { candidate }), { valid: true });
-  assert.equal(minimal.gate, "PUCK");
-  assert.equal(minimal.report_digest, computeReportDigest(minimal));
-  const wrongCandidate = bind({ verdict: "PASS", candidate_diff_digest: sha("other-diff") });
-  assert.deepEqual(validateGateReport(wrongCandidate, packet, snapshot, { candidate }).errors, ["snapshot binding mismatch"]);
-  assert.equal(bind(null), null);
+  const bound = { report_id: "R", gate: "PUCK", phase: "PRE_INTEGRATION", packet_id: "P1", source_manifest_digest: sha("source"), candidate_id: "C1", candidate_patch_digest: sha("patch"), candidate_tree_digest: sha("tree"), candidate_diff_digest: sha("diff"), snapshot_id: "S1", gate_run_id: "G", verdict: "PASS", created_by: "puck" };
+  assert.deepEqual(validateGateReport({ ...bound, report_digest: computeReportDigest(bound) }, packet, snapshot, { candidate }), { valid: true });
+  assert.deepEqual(validateGateReport({ ...bound, report_digest: sha("model-guess") }, packet, snapshot, { candidate }).errors, ["report digest mismatch"]);
+  const unbound = { ...bound };
+  delete unbound.snapshot_id;
+  assert.ok(validateGateReport({ ...unbound, report_digest: computeReportDigest(unbound) }, packet, snapshot, { candidate }).errors.includes("snapshot_id is required"));
 });
 
 test("Stryker runner records pass and durable failures with exact bindings", () => {
