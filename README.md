@@ -115,6 +115,14 @@ The config names adapters, setup, hazards, capacity, and checks. Use
 `--dry-run` or `--resume <run-id>`. Optional `delivery.enabled`,
 `delivery.repository_slug`, and `delivery.head` enable `gh-axi` PR delivery.
 
+The run summary (`.hush/runs/<run-id>/runner-summary.json`) contains a `usage`
+block. It shows the number of calls, the wall time, and the token counts for
+each role and for the whole run: uncached input, cache reads, cache writes,
+and output. It also shows the cost when the harness reports it. The
+`harness-adapter` bridge reads usage from Claude, Codex, Gemini, and OpenCode.
+A custom adapter can report usage in a top-level `hush_usage` object. Hush
+removes that object before it reads the role result.
+
 ```sh
 hush-agents watch --run RUN-1 --root . --drain
 hush-agents decide --run RUN-1 --root . --decision retry

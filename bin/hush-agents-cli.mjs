@@ -16,7 +16,7 @@ import { GhAxiAdapter, renderPrPayload } from "../lib/runtime/delivery.mjs";
 import { validateWritePathCoverage } from "../lib/runtime/evidence.mjs";
 import { replayRunState } from "../lib/runtime/state.mjs";
 import { RUN_EXIT_CODES, RunnerError, runWorkflow } from "../lib/runtime/runner.mjs";
-import { SUPPORTED_HARNESSES, buildHarnessInvocation, loadBundledProfile, parseHarnessOutput } from "../lib/runtime/harness-adapter.mjs";
+import { HARNESS_USAGE_KEY, SUPPORTED_HARNESSES, buildHarnessInvocation, loadBundledProfile, parseHarnessOutput, parseHarnessUsage } from "../lib/runtime/harness-adapter.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const home = process.env.HOME;
@@ -582,7 +582,9 @@ function harnessAdapterCommand(args) {
     const result = spawnSync(invocation.command, invocation.args, { cwd: input.worktree_path ?? input.repository ?? process.cwd(), input: invocation.input, encoding: "utf8", timeout: 10 * 60 * 1000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, HUSH_RUN_ID: input.run_id ?? "", HUSH_ROLE: agent } });
     if (result.error || result.status !== 0) throw new Error(`${harness} exited ${result.status ?? "with error"}: ${result.error?.message ?? result.stderr ?? "unknown error"}`);
     const outputText = existsSync(outputPath) ? readFileSync(outputPath, "utf8") : "";
-    process.stdout.write(`${JSON.stringify(parseHarnessOutput({ harness, stdout: result.stdout, outputText }))}\n`);
+    // Pass the harness token usage to the runner under a reserved key. The runner removes the key before it reads the role result.
+    const usage = parseHarnessUsage({ harness, stdout: result.stdout });
+    process.stdout.write(`${JSON.stringify({ ...parseHarnessOutput({ harness, stdout: result.stdout, outputText }), ...(usage ? { [HARNESS_USAGE_KEY]: usage } : {}) })}\n`);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
