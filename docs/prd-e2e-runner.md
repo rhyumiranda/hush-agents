@@ -50,6 +50,10 @@ Run configuration names the harness adapters, safe environment profile, target b
 
 JSON summary must include run ID, PRD revision, state, task counts, current blockers, candidate/integration IDs, evidence IDs, and exit reason.
 
+The summary (`.hush/runs/<run-id>/runner-summary.json`) also contains a `usage` block. It shows the number of calls, the wall time, and the token counts for each role and for the whole run: uncached input, cache reads, cache writes, and output. It also shows the cost when the harness reports it. The `harness-adapter` bridge reads usage from Claude, Codex, Gemini, and OpenCode. A custom adapter can report usage in a top-level `hush_usage` object. Hush removes that object before it reads the role result.
+
+Tasks run as a pool. When any task finishes, the runner admits the next ready task, up to `max_workers`. The worktree setup commands of parallel tasks run at the same time.
+
 ## Failure behavior
 
 - Invalid input: exit `2`, no run dispatch.
