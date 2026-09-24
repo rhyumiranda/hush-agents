@@ -62,13 +62,10 @@ test("canonical packet JSON sorts object keys and omits digest", () => {
   assert.equal(computePacketDigest(packet), packet.digest);
 });
 
+// The frozen fixture keeps an old packet without `contract_version` and a digest computed once. If canonical JSON or
+// the digest algorithm changes, the first assertion fails. The strict hec.v1 contract must still reject the packet.
 test("legacy sample T-01 packet is rejected by the strict contract", () => {
-  const packet = JSON.parse(
-    readFileSync(
-      "/Users/rhyu/Documents/Codex/2026-09-03/i-want-you-to-look-for/outputs/hush-runtime-packets/PKT-T01-R1.json",
-      "utf8",
-    ),
-  );
+  const packet = JSON.parse(readFileSync(new URL("./fixtures/legacy-packet-T01.json", import.meta.url), "utf8"));
 
   assert.equal(computePacketDigest(packet), packet.digest);
   assert.equal(validatePacket(packet).status, PACKET_STATUS.INVALID_SHAPE);

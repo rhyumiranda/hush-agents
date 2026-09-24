@@ -1,0 +1,22 @@
+{
+  "packet_id": "PKT-T01-R1",
+  "run_id": "RUN-LIVE-SHIP-1",
+  "task_id": "T-01",
+  "target_agent": "flint",
+  "base_sha": "4b1f0c9d2e8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c",
+  "requirements": [
+    "R-01",
+    "R-02",
+    "R-03",
+    "R-04",
+    "R-05"
+  ],
+  "write_paths": [
+    "src/shipping.js"
+  ],
+  "required_commands": [
+    "npm test"
+  ],
+  "vera_required": true,
+  "digest": "sha256:d40f12d6ba8b272fcd5925678cae5ecea53e33415662832b234451b22db7d4d9"
+}
