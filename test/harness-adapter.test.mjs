@@ -30,6 +30,17 @@ test("only Flint receives a writable native harness mode by default", () => {
   }
 });
 
+test("harness prompt carries the task packet once, not twice", () => {
+  const packet = { packet_id: "PKT-UNIQUE-1", write_paths: ["result.txt"] };
+  const flintPayload = { task: { task_id: "TASK-1", packet }, packet, worktree_path: process.cwd() };
+  for (const harness of SUPPORTED_HARNESSES) {
+    const invocation = buildHarnessInvocation({ harness, role: "flint", payload: flintPayload, outputPath: "/tmp/last-message.json" });
+    const prompt = invocation.args.join(" ") + invocation.input;
+    assert.equal(prompt.split("PKT-UNIQUE-1").length - 1, 1, harness);
+    assert.match(prompt, /"task":\{"task_id":"TASK-1"\}/, harness);
+  }
+});
+
 test("adapter output parser normalizes native text and JSON envelopes", () => {
   const result = { requirements: [{ requirement_id: "REQ-1" }] };
   assert.deepEqual(parseHarnessOutput({ harness: "codex", outputText: "```json\n" + JSON.stringify(result) + "\n```" }), result);

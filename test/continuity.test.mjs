@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { persistHazardInventory, validateEnvironment } from "../lib/runtime/environment.mjs";
-import { computeReportDigest, validateCheckCoverage } from "../lib/runtime/evidence.mjs";
+import { bindGateReport, computeReportDigest, validateCheckCoverage, validateGateReport } from "../lib/runtime/evidence.mjs";
 import { canAutoMerge, deliverPullRequest, GhAxiAdapter, normalizeCiEvent, pollPullRequestCi, renderPrPayload, validateCiIdentity } from "../lib/runtime/delivery.mjs";
 import { validateRequirementRecord } from "../lib/runtime/requirements.mjs";
 import { capacityPolicy } from "../lib/runtime/scheduler.mjs";
@@ -397,6 +397,20 @@ test("mutation evidence binds exact sources and rejects every binding or verdict
   const defaultRecorded = readStateEvents(defaultStateRoot, "RUN-2").at(-1);
   assert.equal(defaultRecorded.actor, "puck");
   assert.equal(defaultRecorded.cause, "mutation-check");
+});
+
+test("Hush binds gate reports so the model never copies or computes digests", () => {
+  const packet = { packet_id: "P1", source_refs: [{ manifest_digest: sha("source") }] };
+  const snapshot = { snapshot_id: "S1", tree_digest: sha("tree"), diff_digest: sha("diff") };
+  const candidate = { candidate_id: "C1", patch_digest: sha("patch") };
+  const bind = (report) => bindGateReport(report, { gate: "puck", packet, snapshot, candidate, runId: "R1" });
+  const minimal = bind({ verdict: "PASS", report_digest: "sha256:model-guess", candidate_diff_digest: "", snapshot_id: null });
+  assert.deepEqual(validateGateReport(minimal, packet, snapshot, { candidate }), { valid: true });
+  assert.equal(minimal.gate, "PUCK");
+  assert.equal(minimal.report_digest, computeReportDigest(minimal));
+  const wrongCandidate = bind({ verdict: "PASS", candidate_diff_digest: sha("other-diff") });
+  assert.deepEqual(validateGateReport(wrongCandidate, packet, snapshot, { candidate }).errors, ["snapshot binding mismatch"]);
+  assert.equal(bind(null), null);
 });
 
 test("Stryker runner records pass and durable failures with exact bindings", () => {
