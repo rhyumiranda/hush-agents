@@ -12,7 +12,7 @@ import { canAutoMerge, deliverPullRequest, GhAxiAdapter, normalizeCiEvent, pollP
 import { validateRequirementRecord } from "../lib/runtime/requirements.mjs";
 import { capacityPolicy } from "../lib/runtime/scheduler.mjs";
 import { appendStateEvent, readStateEvents, replayRunState } from "../lib/runtime/state.mjs";
-import { createMutationEvidence, mutationPolicyForRequirements, recordMutationEvidence, runStrykerPolicy, runVeraShell, summarizeStrykerReport, validateMutationPolicy, validateMutationReport, validateVeraShellCommand } from "../lib/runtime/verification.mjs";
+import { createMutationEvidence, mutationPolicyForRequirements, recordMutationEvidence, runStrykerPolicy, runStrykerPolicyAsync, runVeraShell, summarizeStrykerReport, validateMutationPolicy, validateMutationReport, validateVeraShellCommand } from "../lib/runtime/verification.mjs";
 import { drainRun, pauseRun, replayRun, resolveHumanDecision, resumeRun, scheduleDurableTimer, watchOnce, watchRun, writeCursor } from "../lib/runtime/watcher.mjs";
 
 const now = "2026-09-10T02:00:00.000Z";
@@ -477,6 +477,23 @@ test("Stryker runner records pass and durable failures with exact bindings", () 
   assert.throws(() => runStrykerPolicy({ ...passFixture, changedPaths: [] }), (error) => error.message === "MUTATION_CHANGED_PATHS_REQUIRED");
   assert.throws(() => runStrykerPolicy({ ...passFixture, changedPaths: "src/a.js" }), (error) => error.message === "MUTATION_CHANGED_PATHS_REQUIRED");
   assert.throws(() => runStrykerPolicy({ ...passFixture }), (error) => error.message === "MUTATION_CHANGED_PATHS_REQUIRED");
+});
+
+test("async Stryker runner matches sync evidence and lets parallel runs overlap", async () => {
+  const changedPaths = ["src/a.js"];
+  const fixture = mutationFixture({ exitStatus: 2 });
+  assert.deepEqual(await runStrykerPolicyAsync({ ...fixture, changedPaths }), runStrykerPolicy({ ...fixture, changedPaths }));
+  await assert.rejects(runStrykerPolicyAsync({ ...mutationFixture({ versionStatus: 1 }), changedPaths }), (error) => error.code === "MUTATION_TOOL_UNAVAILABLE");
+  const timeoutFixture = mutationFixture({ writeReport: false, sleepSeconds: 10 });
+  mkdirSync(join(timeoutFixture.cwd, "reports"));
+  writeFileSync(join(timeoutFixture.cwd, "reports", "mutation.json"), JSON.stringify(mutationReport()));
+  const timeoutStarted = Date.now();
+  const timedOut = await runStrykerPolicyAsync({ ...timeoutFixture, timeoutMs: 500, changedPaths });
+  assert.deepEqual([timedOut.status, timedOut.timed_out, timedOut.exit_status], ["FAIL", true, null]);
+  assert.ok(Date.now() - timeoutStarted < 5000, "a grandchild that holds the pipes must not delay the timeout");
+  const overlapStarted = Date.now();
+  await Promise.all([mutationFixture({ sleepSeconds: 2 }), mutationFixture({ sleepSeconds: 2 })].map((slow) => runStrykerPolicyAsync({ ...slow, changedPaths })));
+  assert.ok(Date.now() - overlapStarted < 3500, "two 2s mutation runs must overlap; one after another they take at least 4s");
 });
 
 test("Stryker summary handles empty, ignored, unrecognized, and array report shapes", () => {
