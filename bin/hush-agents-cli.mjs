@@ -582,7 +582,8 @@ function harnessAdapterCommand(args) {
   try {
     const invocation = buildHarnessInvocation({ harness, role: agent, payload: input, outputPath, executable, sandbox, model, profileText: loadBundledProfile(root, harness, agent) });
     const result = spawnSync(invocation.command, invocation.args, { cwd: input.worktree_path ?? input.repository ?? process.cwd(), input: invocation.input, encoding: "utf8", timeout: 10 * 60 * 1000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, HUSH_RUN_ID: input.run_id ?? "", HUSH_ROLE: agent } });
-    if (result.error || result.status !== 0) throw new Error(`${harness} exited ${result.status ?? "with error"}: ${result.error?.message ?? result.stderr ?? "unknown error"}`);
+    // Some harnesses (claude --output-format json) report failures such as an expired login on stdout, not stderr.
+    if (result.error || result.status !== 0) throw new Error(`${harness} exited ${result.status ?? "with error"}: ${result.error?.message || result.stderr?.trim() || harnessFailureText(result.stdout) || "unknown error"}`);
     const outputText = existsSync(outputPath) ? readFileSync(outputPath, "utf8") : "";
     // Pass the harness token usage to the runner under a reserved key. The runner removes the key before it reads the role result.
     const usage = parseHarnessUsage({ harness, stdout: result.stdout });
@@ -590,6 +591,12 @@ function harnessAdapterCommand(args) {
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
+}
+
+/** Short failure text from harness stdout: the `result` field of a JSON envelope, or else the start of the raw text. */
+function harnessFailureText(stdout = "") {
+  try { const parsed = JSON.parse(stdout); if (typeof parsed?.result === "string") return parsed.result; } catch {}
+  return stdout.trim().slice(0, 2000);
 }
 
 function runtimeArgs(args) {
