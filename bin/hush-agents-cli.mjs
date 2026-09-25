@@ -13,10 +13,10 @@ import { allocateWorktree, createWorktree, listWorktrees, releaseWorktree, warmW
 import { abortMerge, cleanupIntegrationWorktree, enqueueCandidate, processNextMerge, queueStatus, recoverIntegrating } from "../lib/runtime/merge-queue.mjs";
 import { pauseRun, replayRun, resolveHumanDecision, resumeRun, watchRun } from "../lib/runtime/watcher.mjs";
 import { GhAxiAdapter, renderPrPayload } from "../lib/runtime/delivery.mjs";
-import { validateWritePathCoverage } from "../lib/runtime/evidence.mjs";
+import { computeReportDigest, validateWritePathCoverage } from "../lib/runtime/evidence.mjs";
 import { replayRunState } from "../lib/runtime/state.mjs";
 import { RUN_EXIT_CODES, RunnerError, runWorkflow } from "../lib/runtime/runner.mjs";
-import { SUPPORTED_HARNESSES, buildHarnessInvocation, loadBundledProfile, parseHarnessOutput } from "../lib/runtime/harness-adapter.mjs";
+import { HARNESS_USAGE_KEY, SUPPORTED_HARNESSES, buildHarnessInvocation, loadBundledProfile, parseHarnessOutput, parseHarnessUsage, resultSchemaFor } from "../lib/runtime/harness-adapter.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const home = process.env.HOME;
@@ -45,6 +45,7 @@ function usage() {
   validate-packet <packet.json> [context options],"validate packet shape, digest, and status","hush-agents validate-packet packet.json"
   hashline-read <file>,"read a file with content-hashed line anchors","hush-agents hashline-read src/file.js"
   hashline-patch <file> <patch.json> [--dry-run],"apply hash-anchored edits and reject stale reads","hush-agents hashline-patch src/file.js patch.json"
+  report-digest [--report <json>],"print the canonical report_digest of a Puck or Vera report (stdin or --report)","hush-agents report-digest --report '{\"gate\":\"PUCK\"}'"
   run-state <run-id> --root <repo>,"print durable scheduler state summary","hush-agents run-state RUN-1 --root ."
   schedule <run-id> --root <repo> --max-workers 8,"admit all safe ready tasks","hush-agents schedule RUN-1 --root . --max-workers 8"
   schedule-once <run-id> --root <repo>,"admit one safe ready task","hush-agents schedule-once RUN-1 --root ."
@@ -130,7 +131,8 @@ const COMMAND_HELP = Object.freeze({
   "observe-capacity": "usage: hush-agents observe-capacity <run-id> --root <repo> --available-workers <n> --confidence HIGH [--json]",
   "verify-write-paths": "usage: hush-agents verify-write-paths --packet <file> --report <file> [--json]",
   "render-pr": "usage: hush-agents render-pr --run <id> --root <repo> [--json]",
-  "harness-adapter": "usage: hush-agents harness-adapter --harness <codex|claude|gemini|opencode> --agent <name> [--executable <path>] [--sandbox <mode>]",
+  "harness-adapter": "usage: hush-agents harness-adapter --harness <codex|claude|gemini|opencode> --agent <name> [--model <name>] [--executable <path>] [--sandbox <mode>]",
+  "report-digest": "usage: hush-agents report-digest [--report <json>]   (reads the report from stdin without --report)",
   "worktree-list": "usage: hush-agents worktree-list --repo <path> [--json]",
   "worktree-create": "usage: hush-agents worktree-create --repo <path> --base <sha> --run <id> --task <id> [--json]",
   "worktree-warm": "usage: hush-agents worktree-warm --repo <path> --base <sha> --profile <file> --packet <file> [--json]",
@@ -562,6 +564,7 @@ function harnessAdapterCommand(args) {
   let agent;
   let executable;
   let sandbox;
+  let model;
   for (let index = 0; index < args.length; index += 1) {
     const parsed = parseOption(args[index]);
     const value = parsed.value ?? args[index + 1];
@@ -570,6 +573,7 @@ function harnessAdapterCommand(args) {
     else if (parsed.name === "--agent") agent = value;
     else if (parsed.name === "--executable") executable = value;
     else if (parsed.name === "--sandbox") sandbox = value;
+    else if (parsed.name === "--model") model = value;
     else if (parsed.name) throw new Error(`unknown option ${parsed.name}`);
   }
   if (!SUPPORTED_HARNESSES.includes(harness)) throw new Error(`--harness must be one of ${SUPPORTED_HARNESSES.join(", ")}`);
@@ -578,14 +582,39 @@ function harnessAdapterCommand(args) {
   const tempRoot = mkdtempSync(join(tmpdir(), "hush-harness-adapter-"));
   const outputPath = join(tempRoot, "last-message.txt");
   try {
-    const invocation = buildHarnessInvocation({ harness, role: agent, payload: input, outputPath, executable, sandbox, profileText: loadBundledProfile(root, harness, agent) });
+    // Codex reads the result schema from a file. Claude gets the schema inline from buildHarnessInvocation.
+    const schema = resultSchemaFor(agent);
+    const schemaPath = schema ? join(tempRoot, "result-schema.json") : undefined;
+    if (schema) writeFileSync(schemaPath, JSON.stringify(schema));
+    const invocation = buildHarnessInvocation({ harness, role: agent, payload: input, outputPath, executable, sandbox, model, schemaPath, profileText: loadBundledProfile(root, harness, agent) });
     const result = spawnSync(invocation.command, invocation.args, { cwd: input.worktree_path ?? input.repository ?? process.cwd(), input: invocation.input, encoding: "utf8", timeout: 10 * 60 * 1000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, HUSH_RUN_ID: input.run_id ?? "", HUSH_ROLE: agent } });
-    if (result.error || result.status !== 0) throw new Error(`${harness} exited ${result.status ?? "with error"}: ${result.error?.message ?? result.stderr ?? "unknown error"}`);
+    // Some harnesses (claude --output-format json) report failures such as an expired login on stdout, not stderr.
+    if (result.error || result.status !== 0) throw new Error(`${harness} exited ${result.status ?? "with error"}: ${result.error?.message || result.stderr?.trim() || harnessFailureText(result.stdout) || "unknown error"}`);
     const outputText = existsSync(outputPath) ? readFileSync(outputPath, "utf8") : "";
-    process.stdout.write(`${JSON.stringify(parseHarnessOutput({ harness, stdout: result.stdout, outputText }))}\n`);
+    // Pass the harness token usage to the runner under a reserved key. The runner removes the key before it reads the role result.
+    const usage = parseHarnessUsage({ harness, stdout: result.stdout });
+    process.stdout.write(`${JSON.stringify({ ...parseHarnessOutput({ harness, stdout: result.stdout, outputText }), ...(usage ? { [HARNESS_USAGE_KEY]: usage } : {}) })}\n`);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
+}
+
+/** Short failure text from harness stdout: the `result` field of a JSON envelope, or else the start of the raw text. */
+function harnessFailureText(stdout = "") {
+  try { const parsed = JSON.parse(stdout); if (typeof parsed?.result === "string") return parsed.result; } catch {}
+  return stdout.trim().slice(0, 2000);
+}
+
+/**
+ * Print the canonical `report_digest` of a Puck or Vera report: SHA-256 over canonical JSON (sorted keys), with any
+ * `report_digest` field left out. This is the value that validateGateReport recomputes. A gate runs this command to
+ * seal its own report with a real calculation. The output is only the digest, so a caller can paste it directly.
+ */
+function reportDigestCommand(args) {
+  const index = args.indexOf("--report");
+  const report = JSON.parse(index >= 0 ? args[index + 1] ?? "" : readFileSync(0, "utf8"));
+  if (!report || typeof report !== "object" || Array.isArray(report)) throw new Error("the report must be one JSON object");
+  console.log(computeReportDigest(report));
 }
 
 function runtimeArgs(args) {
@@ -765,6 +794,10 @@ else if (command === "harness-adapter") {
 else if (command === "validate-packet") validatePacketCommand(commandArgs[0], commandArgs.slice(1));
 else if (command === "hashline-read") hashlineReadCommand(commandArgs[0], commandArgs.slice(1));
 else if (command === "hashline-patch") hashlinePatchCommand(commandArgs[0], commandArgs[1], commandArgs.slice(2));
+else if (command === "report-digest") {
+  try { reportDigestCommand(commandArgs); }
+  catch (error) { emitError(`report-digest failed: ${error.message}`, "Pass one JSON object with --report '<json>' or on stdin"); process.exit(2); }
+}
 else if (["run-state", "schedule", "schedule-once", "recover", "recover-interrupted", "observe-capacity"].includes(command)) {
   try { schedulerCommand(command, commandArgs[0], commandArgs.slice(1)); }
   catch (error) { emit({ status: "READ_ERROR", issue: { rule: error.message }, help: `Run 'hush-agents ${command} --help' for valid flags` }); process.exit(2); }
@@ -788,5 +821,5 @@ else if (["merge-enqueue", "merge-status", "merge-process", "merge-recover", "me
 else if (command === "home") homeView();
 else if (command === "help" || command === "--help" || command === "-h") usage();
 else {
-  emitError(`unknown command ${command}`, "Valid commands: install, list-agents, codex-register, run, doctor, harness-adapter, validate-packet, hashline-read, hashline-patch, run-state, schedule, schedule-once, recover, recover-interrupted, observe-capacity, watch, pause, resume, replay, decide, verify-write-paths, render-pr, worktree-create, worktree-warm, worktree-allocate, worktree-release, worktree-list, merge-enqueue, merge-status, merge-process, merge-recover, merge-cleanup, merge-abort, help");
+  emitError(`unknown command ${command}`, "Valid commands: install, list-agents, codex-register, run, doctor, harness-adapter, validate-packet, hashline-read, hashline-patch, report-digest, run-state, schedule, schedule-once, recover, recover-interrupted, observe-capacity, watch, pause, resume, replay, decide, verify-write-paths, render-pr, worktree-create, worktree-warm, worktree-allocate, worktree-release, worktree-list, merge-enqueue, merge-status, merge-process, merge-recover, merge-cleanup, merge-abort, help");
 }

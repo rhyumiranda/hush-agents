@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import { persistHazardInventory, validateEnvironment } from "../lib/runtime/environment.mjs";
-import { computeReportDigest, validateCheckCoverage } from "../lib/runtime/evidence.mjs";
+import { computeReportDigest, validateCheckCoverage, validateGateReport } from "../lib/runtime/evidence.mjs";
 import { canAutoMerge, deliverPullRequest, GhAxiAdapter, normalizeCiEvent, pollPullRequestCi, renderPrPayload, validateCiIdentity } from "../lib/runtime/delivery.mjs";
-import { validateRequirementRecord } from "../lib/runtime/requirements.mjs";
+import { completeRequirementSource, validateRequirementRecord } from "../lib/runtime/requirements.mjs";
 import { capacityPolicy } from "../lib/runtime/scheduler.mjs";
 import { appendStateEvent, readStateEvents, replayRunState } from "../lib/runtime/state.mjs";
-import { createMutationEvidence, mutationPolicyForRequirements, recordMutationEvidence, runStrykerPolicy, runVeraShell, summarizeStrykerReport, validateMutationPolicy, validateMutationReport, validateVeraShellCommand } from "../lib/runtime/verification.mjs";
+import { createMutationEvidence, mutationPolicyForRequirements, recordMutationEvidence, runStrykerPolicy, runStrykerPolicyAsync, runVeraShell, summarizeStrykerReport, validateMutationPolicy, validateMutationReport, validateVeraShellCommand } from "../lib/runtime/verification.mjs";
 import { drainRun, pauseRun, replayRun, resolveHumanDecision, resumeRun, scheduleDurableTimer, watchOnce, watchRun, writeCursor } from "../lib/runtime/watcher.mjs";
 
 const now = "2026-09-10T02:00:00.000Z";
@@ -231,6 +231,18 @@ test("source byte validation rejects stale source and quote mismatch", () => {
   assert.equal(validateRequirementRecord(record, { root: path }).field, "source");
 });
 
+test("Hush fills Fable source bookkeeping from the PRD bytes and rejects a paraphrased quote", () => {
+  const text = "# Checkout\n\n- Code `SAVE10` takes 10% off.\n";
+  const prd = { path: "docs/prd.md", text, digest: sha(text) };
+  const drafted = { requirement_id: "R-02", quote: "Code `SAVE10` takes 10% off.", expected_behavior: "10% off", actor: "shopper", permissions: ["none"], baseline_status: "REPORTED", enumeration_status: "EXHAUSTIVE", approval_state: "APPROVED", unknowns: [], source: { path: "docs/prd.md", location: "?", digest: "UNKNOWN - no hashing tool" } };
+  const { record, quoteFound } = completeRequirementSource(drafted, prd);
+  assert.equal(quoteFound, true);
+  assert.deepEqual(record.source, { path: "docs/prd.md", location: "docs/prd.md:3", digest: sha(text) });
+  assert.equal(record.revision, 1);
+  assert.equal(validateRequirementRecord(record, { sourceText: text }), null);
+  assert.equal(completeRequirementSource({ ...drafted, quote: "SAVE10 gives 10 percent off" }, prd).quoteFound, false);
+});
+
 test("hazard freshness blocks missing or stale inventory", () => {
   const path = root();
   const repo = root();
@@ -399,6 +411,18 @@ test("mutation evidence binds exact sources and rejects every binding or verdict
   assert.equal(defaultRecorded.cause, "mutation-check");
 });
 
+test("gate reports must carry every binding and their own correct report digest", () => {
+  const packet = { packet_id: "P1", source_refs: [{ manifest_digest: sha("source") }] };
+  const snapshot = { snapshot_id: "S1", tree_digest: sha("tree"), diff_digest: sha("diff") };
+  const candidate = { candidate_id: "C1", patch_digest: sha("patch") };
+  const bound = { report_id: "R", gate: "PUCK", phase: "PRE_INTEGRATION", packet_id: "P1", source_manifest_digest: sha("source"), candidate_id: "C1", candidate_patch_digest: sha("patch"), candidate_tree_digest: sha("tree"), candidate_diff_digest: sha("diff"), snapshot_id: "S1", gate_run_id: "G", verdict: "PASS", created_by: "puck" };
+  assert.deepEqual(validateGateReport({ ...bound, report_digest: computeReportDigest(bound) }, packet, snapshot, { candidate }), { valid: true });
+  assert.deepEqual(validateGateReport({ ...bound, report_digest: sha("model-guess") }, packet, snapshot, { candidate }).errors, ["report digest mismatch"]);
+  const unbound = { ...bound };
+  delete unbound.snapshot_id;
+  assert.ok(validateGateReport({ ...unbound, report_digest: computeReportDigest(unbound) }, packet, snapshot, { candidate }).errors.includes("snapshot_id is required"));
+});
+
 test("Stryker runner records pass and durable failures with exact bindings", () => {
   const passFixture = mutationFixture();
   const pass = runStrykerPolicy({ ...passFixture, changedPaths: ["src/b.js", "src/a.js", "src/a.js"], root: passFixture.cwd, runId: "RUN-PASS", now });
@@ -444,7 +468,8 @@ test("Stryker runner records pass and durable failures with exact bindings", () 
   const timeoutFixture = mutationFixture({ writeReport: false, sleepSeconds: 10 });
   mkdirSync(join(timeoutFixture.cwd, "reports"));
   writeFileSync(join(timeoutFixture.cwd, "reports", "mutation.json"), JSON.stringify(mutationReport()));
-  const timedOut = runStrykerPolicy({ ...timeoutFixture, timeoutMs: 1000, changedPaths: ["src/a.js"] });
+  // timeoutMs also covers the version check. Under full-suite load, 1000ms was not enough (spawnSync npx ETIMEDOUT).
+  const timedOut = runStrykerPolicy({ ...timeoutFixture, timeoutMs: 2000, changedPaths: ["src/a.js"] });
   assert.equal(timedOut.status, "FAIL");
   assert.equal(timedOut.timed_out, true);
   assert.equal(timedOut.exit_status, null);
@@ -463,6 +488,25 @@ test("Stryker runner records pass and durable failures with exact bindings", () 
   assert.throws(() => runStrykerPolicy({ ...passFixture, changedPaths: [] }), (error) => error.message === "MUTATION_CHANGED_PATHS_REQUIRED");
   assert.throws(() => runStrykerPolicy({ ...passFixture, changedPaths: "src/a.js" }), (error) => error.message === "MUTATION_CHANGED_PATHS_REQUIRED");
   assert.throws(() => runStrykerPolicy({ ...passFixture }), (error) => error.message === "MUTATION_CHANGED_PATHS_REQUIRED");
+});
+
+test("async Stryker runner matches sync evidence and lets parallel runs overlap", async () => {
+  const changedPaths = ["src/a.js"];
+  const fixture = mutationFixture({ exitStatus: 2 });
+  assert.deepEqual(await runStrykerPolicyAsync({ ...fixture, changedPaths }), runStrykerPolicy({ ...fixture, changedPaths }));
+  await assert.rejects(runStrykerPolicyAsync({ ...mutationFixture({ versionStatus: 1 }), changedPaths }), (error) => error.code === "MUTATION_TOOL_UNAVAILABLE");
+  const timeoutFixture = mutationFixture({ writeReport: false, sleepSeconds: 10 });
+  mkdirSync(join(timeoutFixture.cwd, "reports"));
+  writeFileSync(join(timeoutFixture.cwd, "reports", "mutation.json"), JSON.stringify(mutationReport()));
+  const timeoutStarted = Date.now();
+  // timeoutMs also covers the version check, so keep it well above process start time on a loaded machine.
+  const timedOut = await runStrykerPolicyAsync({ ...timeoutFixture, timeoutMs: 3000, changedPaths });
+  assert.deepEqual([timedOut.status, timedOut.timed_out, timedOut.exit_status], ["FAIL", true, null]);
+  assert.ok(Date.now() - timeoutStarted < 9000, "the grandchild sleeps 10s; if it held the result open, this call would take at least 10s");
+  const overlapLog = join(root(), "overlap.log");
+  const logged = (fixture) => ({ ...fixture, env: { ...fixture.env, OVERLAP_LOG: overlapLog }, command: 'echo start >> "$OVERLAP_LOG"; sleep 2; echo end >> "$OVERLAP_LOG"; mkdir -p reports; printf %s "$HUSH_MUTATION_REPORT" > "$HUSH_REPORT_PATH"' });
+  await Promise.all([mutationFixture(), mutationFixture()].map((fixture) => runStrykerPolicyAsync({ ...logged(fixture), changedPaths })));
+  assert.deepEqual(readFileSync(overlapLog, "utf8").trim().split("\n"), ["start", "start", "end", "end"], "both mutation runs must be in flight at the same time");
 });
 
 test("Stryker summary handles empty, ignored, unrecognized, and array report shapes", () => {

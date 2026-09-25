@@ -28,7 +28,7 @@ Provide one command that initializes a run, invokes the configured Fable/Rook/Fl
 | E2E-003 | Runner invokes Fable and refuses scheduling when blocking unknowns remain. | Ambiguous fixture stops at Fable with clear questions. |
 | E2E-004 | Runner invokes Rook and validates task graph, hub ownership, and dependency coverage. | Missing requirement/task coverage blocks dispatch. |
 | E2E-005 | Runner delegates ready tasks through the scheduler and worktree pool. | Flint receives a packet-bound isolated worktree. |
-| E2E-006 | Runner routes candidates to Puck and required Vera using frozen snapshots. | Gate reports bind to packet, snapshot, and digests. |
+| E2E-006 | Runner routes candidates to Puck and required Vera using frozen snapshots. | Gate reports bind to packet, snapshot, and digests. Each Puck or Vera report must carry every binding field and its own correct `report_digest`, or Hush rejects it. Hush seals the Rook packet `digest`, because Hush issues the packets. |
 | E2E-007 | Runner sends failures to the correct repair path and resumes from state after restart. | Failure fixture resumes without duplicating completed evidence. |
 | E2E-008 | Runner passes accepted candidates to the merge queue and integration checks. | Integration outcome appears in the acceptance record. |
 | E2E-009 | Runner exits with stable codes: success, blocked, failed, human decision, or invalid input. | CLI code and JSON summary match run state. |
@@ -48,7 +48,36 @@ hush-agents run <prd-path> \
 
 Run configuration names the harness adapters, safe environment profile, target branch, setup commands, required gates, and artifact root. No implicit production credentials or service defaults are allowed.
 
+To choose a model for each role, add `--model <name>` to the `harness-adapter` command of that role. For example, use a fast model for Fable, Rook, Puck, and Vera, and a strong model for Flint. The harness gets `--model <name>`. When you leave out the flag, the harness uses its default model.
+
+```json
+{ "adapters": { "vera": { "command": ["hush-agents", "harness-adapter", "--harness", "claude", "--agent", "vera", "--model", "haiku"] } } }
+```
+
 JSON summary must include run ID, PRD revision, state, task counts, current blockers, candidate/integration IDs, evidence IDs, and exit reason.
+
+The summary (`.hush/runs/<run-id>/runner-summary.json`) also contains a `usage` block. It shows the number of calls, the wall time, and the token counts for each role and for the whole run: uncached input, cache reads, cache writes, and output. It also shows the cost when the harness reports it. The `harness-adapter` bridge reads usage from Claude, Codex, Gemini, and OpenCode. A custom adapter can report usage in a top-level `hush_usage` object. Hush removes that object before it reads the role result.
+
+Tasks run as a pool. When any task finishes, the runner admits the next ready task, up to `max_workers`. The worktree setup commands of parallel tasks run at the same time.
+
+### Role results through `harness-adapter`
+
+Each role prompt contains the exact JSON result that the runner validates. Claude (`--json-schema`) and Codex (`--output-schema`) also enforce it as a schema, so a long result cannot come back as broken JSON. Claude runs a role that has a schema without `--agent`, because `--agent` turns the schema off. The profile text is already in the prompt.
+
+- **Fable** returns only what it decides: `requirement_id`, the exact `quote`, `expected_behavior`, `actor`, `permissions`, the three states, and `unknowns` (`{question, blocking}`). Hush fills `revision`, `source`, `source_discovery`, and `quote_back` from the PRD bytes. The location is the PRD line of the quote.
+- **Rook** returns planning fields for each task. Hush builds and seals the packet, because Hush issues packets. The packet `dependencies` is `[]` at issuance, and the task-level `dependencies` order the tasks.
+- **Puck and Vera** copy every binding from the request and seal their own `report_digest` with `hush-agents report-digest --report '<json>'`. `agents/hush.toml` requires that gates supply their bindings and digest. The command gives them a real calculator.
+
+On Claude, each role gets an exact allowlist:
+
+- Flint: `acceptEdits` plus the packet commands, `git add`, and `git commit`.
+- Puck: `dontAsk` plus the packet commands, `shasum -a 256`, and `report-digest`.
+- Vera: `dontAsk` plus `shasum -a 256` and `report-digest`.
+- Fable and Rook: `plan`.
+
+Flint, Puck, and Vera get the requirement records of their task, not only the IDs.
+
+`node tools/sandbox.mjs --harness <name>` builds `../hush-sandbox` for a live run. The first accepted live run on Claude had 2 parallel tasks. It took about 8 min and cost $6.28.
 
 ## Failure behavior
 
@@ -57,7 +86,7 @@ JSON summary must include run ID, PRD revision, state, task counts, current bloc
 - Environment hazard: exit `4`, no application boot.
 - Implementation/verification failure: exit `5`, preserve evidence and repair route.
 - Successful acceptance: exit `0` only after integration checks and required gates.
-- Interrupted process: append interruption event; `--resume` recovers leases and continues safely.
+- Interrupted process: append interruption event; `--resume` recovers leases and continues safely. If the interrupt happened after Hush froze the Flint candidate, resume fast-forwards a new worktree to that candidate, records a `flint-reused` task event, and runs verification again. It does not call Flint a second time.
 
 ## Implementation slices
 
