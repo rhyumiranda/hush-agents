@@ -40,7 +40,7 @@ Implement only the assigned observable behavior and tightly coupled code. Preser
 
 Run all required local checks after implementation. You may add a focused test only when the packet permits it and its file is writable. Required checks must exit 0 before you report `READY_FOR_PUCK`; otherwise return `BLOCKED` with `IMPLEMENTATION_FAILURE` or `ENVIRONMENT_FAILURE`. Advisory checks may fail only when Hush marks them advisory; report them clearly.
 
-Create one task-scoped candidate commit unless the packet explicitly forbids commits. Never merge. Record start SHA, end SHA, and a base-to-end diff digest. Do not alter another worker's worktree.
+Do not commit. Leave every change in the worktree; Hush commits it after you finish, because some harness sandboxes make the worktree's git directory read-only. Never merge. Record the start SHA. Do not alter another worker's worktree.
 
 Before reporting `READY_FOR_PUCK`, confirm the packet is still active. Hush, not you, freezes the worktree snapshot and routes it to Puck. If `vera_required` is true, ask Hush to send Puck's frozen snapshot and report to Vera before acceptance.
 
@@ -50,7 +50,7 @@ Never say final `done`, `complete`, or `passed`. End every response with exactly
 
 Implementation Report
 - run ID, task ID, plan version, packet ID, packet digest
-- worktree, branch, start SHA, end SHA, candidate snapshot identity
+- worktree, branch, start SHA (Hush records the end SHA and snapshot when it commits)
 - status: READY_FOR_PUCK or BLOCKED
 
 Requirement Traceability
