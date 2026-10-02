@@ -50,6 +50,10 @@ Run configuration names the harness adapters, safe environment profile, target b
 
 To choose a model for each role, add `--model <name>` to the `harness-adapter` command of that role. For example, use a fast model for Fable, Rook, Puck, and Vera, and a strong model for Flint. The harness gets `--model <name>`. When you leave out the flag, the harness uses its default model.
 
+To choose a reasoning effort for each role, add `--effort <level>` the same way. Codex gets `-c model_reasoning_effort="<level>"`, Claude gets `--effort <level>`, and OpenCode gets `--variant <level>`. Gemini CLI has no such flag, so `--effort` with Gemini is an error. The level must be a lowercase word, such as `low`, `medium`, or `high`.
+
+On Codex with a ChatGPT login, the model must be available to that account. In a live run, `gpt-6.1-sol` returned "not supported when using Codex with a ChatGPT account", and `gpt-6-sol` and `gpt-6-luna` worked. Every Codex call gets `-c approval_policy="never"`: nobody can answer an approval in `codex exec`, and an auto-review setting in the user config must not move a command out of the role sandbox. Hush does not pass `--ignore-user-config`, because the user config can hold the model provider, the gateway, and the credential store.
+
 ```json
 { "adapters": { "vera": { "command": ["hush-agents", "harness-adapter", "--harness", "claude", "--agent", "vera", "--model", "haiku"] } } }
 ```
@@ -67,17 +71,19 @@ Each role prompt contains the exact JSON result that the runner validates. Claud
 - **Fable** returns only what it decides: `requirement_id`, the exact `quote`, `expected_behavior`, `actor`, `permissions`, the three states, and `unknowns` (`{question, blocking}`). Hush fills `revision`, `source`, `source_discovery`, and `quote_back` from the PRD bytes. The location is the PRD line of the quote.
 - **Rook** returns planning fields for each task. Hush builds and seals the packet, because Hush issues packets. The packet `dependencies` is `[]` at issuance, and the task-level `dependencies` order the tasks.
 - **Puck and Vera** copy every binding from the request and seal their own `report_digest` with `hush-agents report-digest --report '<json>'`. `agents/hush.toml` requires that gates supply their bindings and digest. The command gives them a real calculator.
+- **Flint** returns `{status, block_code, block_reason, local_checks}`. `status` is `READY_FOR_PUCK` or `BLOCKED`. When Flint returns `BLOCKED`, the task blocks (exit `3`) with Flint's `block_code` as the reason, and `block_reason` as the error. The Flint profile names the `hec.v1` packet fields as the complete preflight contract, so Flint does not block on fields that the packet does not have.
+- Flint edits the worktree and does not commit. After Flint exits, Hush commits every change that is left (author `Hush`, no hooks, no signing). Then Hush freezes the snapshot from git: the end SHA is `HEAD`, and `commit_shas` holds every commit from the base to `HEAD`. Hush does not use Flint's own values for these fields. Codex `workspace-write` makes the gitdir of a linked worktree read-only, so this is the only way that works on every harness. Packet scope and the gates still check every changed path.
 
 On Claude, each role gets an exact allowlist:
 
-- Flint: `acceptEdits` plus the packet commands, `git add`, and `git commit`.
+- Flint: `acceptEdits` plus the packet commands and the hashline editor.
 - Puck: `dontAsk` plus the packet commands, `shasum -a 256`, and `report-digest`.
 - Vera: `dontAsk` plus `shasum -a 256` and `report-digest`.
 - Fable and Rook: `plan`.
 
 Flint, Puck, and Vera get the requirement records of their task, not only the IDs.
 
-`node tools/sandbox.mjs --harness <name>` builds `../hush-sandbox` for a live run. The first accepted live run on Claude had 2 parallel tasks. It took about 8 min and cost $6.28.
+`node tools/sandbox.mjs --harness <name>` builds `../hush-sandbox` for a live run. The first accepted live run on Claude had 2 parallel tasks. It took about 8 min and cost $6.28. The first accepted live run on Codex with a ChatGPT login (`--model gpt-6-sol --review-model gpt-6-luna`) took about 10 min. A ChatGPT plan bills credits, not USD, so `cost_usd` is `null` for Codex.
 
 ## Failure behavior
 
