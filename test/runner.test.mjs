@@ -36,7 +36,8 @@ function reportDigest(report) {
   return sha(canonical(copy));
 }
 
-function adapterFixture() {
+/** Fake harness adapter. flintCommits: "all" (Flint commits its work), "none" (Flint leaves it uncommitted), "partial" (commits a draft, then leaves the final edit uncommitted). */
+function adapterFixture({ flintCommits = "all" } = {}) {
   return `
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -67,9 +68,11 @@ if (input.role === "fable" && input.prd_text.includes("MODEL_SHAPED")) {
   if (input.requirements[0].risk === "HIGH") packet.mutation_policy = { required: true, tool: "strykerjs", checks: ["authorization", "publication", "consent", "audit", "security"] };
   output = { plan_id: "PLAN-1", tasks: [{ task_id: "TASK-1", requirements: ["REQ-1"], packet: seal(packet) }] };
 } else if (input.role === "flint") {
+  const mode = ${JSON.stringify(flintCommits)};
+  const commit = (message) => { execFileSync("git", ["add", "result.txt"], { cwd: input.worktree_path }); execFileSync("git", ["commit", "-m", message], { cwd: input.worktree_path, stdio: "ignore" }); };
+  if (mode === "partial") { writeFileSync(input.worktree_path + "/result.txt", "draft\\n"); commit("feat: draft result"); }
   writeFileSync(input.worktree_path + "/result.txt", "implemented\\n");
-  execFileSync("git", ["add", "result.txt"], { cwd: input.worktree_path });
-  execFileSync("git", ["commit", "-m", "feat: implement result"], { cwd: input.worktree_path, stdio: "ignore" });
+  if (mode === "all") commit("feat: implement result");
   output = { candidate_id: "CAND-TASK-1", dependency_closure: ["REQ-1"], behavior_class: "RESULT_OUTPUT" };
 } else if (input.role === "puck" || input.role === "vera") {
   const snapshot = input.snapshot;
@@ -84,7 +87,7 @@ process.stdout.write(JSON.stringify(output));
 `;
 }
 
-function setupFixture({ ambiguous = false, highRisk = false, modelShaped = false } = {}) {
+function setupFixture({ ambiguous = false, highRisk = false, modelShaped = false, flintCommits = "all" } = {}) {
   const root = mkdtempSync(join(tmpdir(), "hush-runner-"));
   const repo = join(root, "repo");
   execFileSync("git", ["init", "-b", "main", repo], { encoding: "utf8" });
@@ -95,7 +98,7 @@ function setupFixture({ ambiguous = false, highRisk = false, modelShaped = false
   git(repo, "commit", "-m", "docs: add prd");
 
   const adapter = join(root, "adapter.mjs");
-  writeFileSync(adapter, adapterFixture());
+  writeFileSync(adapter, adapterFixture({ flintCommits }));
   const profile = join(root, "setup-profile.json");
   writeFileSync(profile, JSON.stringify({ setup_commands: [] }));
   const environment = {
@@ -178,4 +181,19 @@ test("run accepts model-shaped Fable and Rook results and Hush fills the bookkee
   const packet = state.entities.packet["PKT-TASK-1"];
   assert.deepEqual([packet.contract_version, packet.target_agent, packet.dependencies, packet.source_refs[0].manifest_digest], ["hec.v1", "flint", [], requirement.source.digest]);
   assert.equal(state.entities.task["TASK-1"].status, "ACCEPTED");
+});
+
+test("Hush commits work that Flint left uncommitted, and integration carries every candidate commit", () => {
+  for (const flintCommits of ["none", "partial"]) {
+    const fixture = setupFixture({ flintCommits });
+    const result = run(["run", "prd.md", "--repo", fixture.repo, "--target", "main", "--config", fixture.config, "--json"], fixture.repo);
+    assert.equal(result.status, 0, `${flintCommits}: ${result.stderr || result.stdout}`);
+    const state = replayRunState(fixture.repo, JSON.parse(result.stdout).run_id);
+    const candidate = state.entities.candidate["CAND-TASK-1"];
+    assert.equal(candidate.commit_shas.length, flintCommits === "partial" ? 2 : 1, flintCommits);
+    assert.equal(candidate.commit_shas.at(-1), candidate.end_sha, flintCommits);
+    assert.equal(git(fixture.repo, "log", "-1", "--format=%an", candidate.end_sha), "Hush", flintCommits);
+    const merge = state.entities.merge_event["MQ-main-CAND-TASK-1"];
+    assert.equal(readFileSync(join(merge.integration_path, "result.txt"), "utf8"), "implemented\n", flintCommits);
+  }
 });

@@ -30,12 +30,13 @@ test("only Flint receives a writable native harness mode by default", () => {
   }
 });
 
-test("claude roles get exact allowlists: Flint edits and commits, Puck runs checks, both gates get only their calculators", () => {
+test("claude roles get exact allowlists: Flint edits but cannot commit, Puck runs checks, both gates get only their calculators", () => {
   const packet = { required_commands: ["npm test"], acceptance_checks: [{ command: "npm test" }, { command: "node --test test/a.test.js" }] };
   const argsFor = (role) => buildHarnessInvocation({ harness: "claude", role, payload: { ...payload, packet }, outputPath: "/tmp/x" }).args.join(" ");
   const flint = argsFor("flint");
   assert.match(flint, /--permission-mode acceptEdits/);
-  for (const tool of ["Bash(npm test)", "Bash(node --test test/a.test.js)", "Bash(git commit *)"]) assert.ok(flint.includes(tool), tool);
+  for (const tool of ["Bash(npm test)", "Bash(node --test test/a.test.js)"]) assert.ok(flint.includes(tool), tool);
+  assert.doesNotMatch(flint, /git commit|git add/, "Hush commits Flint's work");
   const puck = argsFor("puck");
   assert.match(puck, /--permission-mode dontAsk --allowedTools Bash\(npm test\) Bash\(node --test test\/a\.test\.js\) /);
   for (const tool of ["Bash(shasum -a 256 *)", `Bash(${REPORT_DIGEST_COMMAND} *)`]) assert.ok(puck.includes(tool), tool);

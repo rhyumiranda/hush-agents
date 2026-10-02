@@ -67,10 +67,11 @@ Each role prompt contains the exact JSON result that the runner validates. Claud
 - **Fable** returns only what it decides: `requirement_id`, the exact `quote`, `expected_behavior`, `actor`, `permissions`, the three states, and `unknowns` (`{question, blocking}`). Hush fills `revision`, `source`, `source_discovery`, and `quote_back` from the PRD bytes. The location is the PRD line of the quote.
 - **Rook** returns planning fields for each task. Hush builds and seals the packet, because Hush issues packets. The packet `dependencies` is `[]` at issuance, and the task-level `dependencies` order the tasks.
 - **Puck and Vera** copy every binding from the request and seal their own `report_digest` with `hush-agents report-digest --report '<json>'`. `agents/hush.toml` requires that gates supply their bindings and digest. The command gives them a real calculator.
+- **Flint** edits the worktree and does not commit. After Flint exits, Hush commits every change that is left (author `Hush`, no hooks, no signing). Then Hush freezes the snapshot from git: the end SHA is `HEAD`, and `commit_shas` holds every commit from the base to `HEAD`. Hush does not use Flint's own values for these fields. Codex `workspace-write` makes the gitdir of a linked worktree read-only, so this is the only way that works on every harness. Packet scope and the gates still check every changed path.
 
 On Claude, each role gets an exact allowlist:
 
-- Flint: `acceptEdits` plus the packet commands, `git add`, and `git commit`.
+- Flint: `acceptEdits` plus the packet commands and the hashline editor.
 - Puck: `dontAsk` plus the packet commands, `shasum -a 256`, and `report-digest`.
 - Vera: `dontAsk` plus `shasum -a 256` and `report-digest`.
 - Fable and Rook: `plan`.
