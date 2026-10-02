@@ -83,7 +83,7 @@ On Claude, each role gets an exact allowlist:
 
 Flint, Puck, and Vera get the requirement records of their task, not only the IDs.
 
-`node tools/sandbox.mjs --harness <name>` builds `../hush-sandbox` for a live run. The first accepted live run on Claude had 2 parallel tasks. It took about 8 min and cost $6.28.
+`node tools/sandbox.mjs --harness <name>` builds `../hush-sandbox` for a live run. The first accepted live run on Claude had 2 parallel tasks. It took about 8 min and cost $6.28. The first accepted live run on Codex with a ChatGPT login (`--model gpt-6-sol --review-model gpt-6-luna`) took about 10 min. A ChatGPT plan bills credits, not USD, so `cost_usd` is `null` for Codex.
 
 ## Failure behavior
 
