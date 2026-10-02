@@ -80,16 +80,30 @@ test("an optional model reaches every harness as --model without displacing the 
   }
 });
 
+test("an optional effort reaches each harness flag, Gemini rejects it, and a TOML-unsafe value is refused", () => {
+  const flags = { codex: ["-c", 'model_reasoning_effort="low"'], claude: ["--effort", "low"], opencode: ["--variant", "low"] };
+  for (const [harness, flag] of Object.entries(flags)) {
+    const plain = buildHarnessInvocation({ harness, role: "puck", payload, outputPath: "/tmp/x" });
+    const low = buildHarnessInvocation({ harness, role: "puck", payload, outputPath: "/tmp/x", effort: "low" });
+    const at = low.args.findIndex((arg, index) => arg === flag[0] && low.args[index + 1] === flag[1]);
+    assert.ok(at >= 0, harness);
+    assert.deepEqual(low.args.filter((_, index) => index !== at && index !== at + 1), plain.args, harness);
+    assert.throws(() => buildHarnessInvocation({ harness, role: "puck", payload, outputPath: "/tmp/x", effort: 'low" sandbox_mode="danger-full-access' }), /effort must be/);
+  }
+  assert.throws(() => buildHarnessInvocation({ harness: "gemini", role: "puck", payload, outputPath: "/tmp/x", effort: "low" }), /gemini has no reasoning effort/);
+  const codex = buildHarnessInvocation({ harness: "codex", role: "puck", payload, outputPath: "/tmp/x" }).args;
+  assert.equal(codex[codex.indexOf('approval_policy="never"') - 1], "-c", "codex exec must never route an approval out of the role sandbox");
+});
+
 test("a role result schema is enforced by claude and codex and stays strict-mode compatible", () => {
   const claude = buildHarnessInvocation({ harness: "claude", role: "fable", payload, outputPath: "/tmp/x" });
   assert.deepEqual(JSON.parse(claude.args[claude.args.indexOf("--json-schema") + 1]), resultSchemaFor("fable"));
   assert.equal(claude.args.includes("--agent"), false, "claude --agent silently turns off --json-schema");
   const codex = buildHarnessInvocation({ harness: "codex", role: "fable", payload, outputPath: "/tmp/x", schemaPath: "/tmp/schema.json" });
   assert.equal(codex.args[codex.args.indexOf("--output-schema") + 1], "/tmp/schema.json");
-  assert.equal(buildHarnessInvocation({ harness: "claude", role: "flint", payload, outputPath: "/tmp/x" }).args.includes("--json-schema"), false);
   const strictObjects = (schema) => schema.type !== "object" || (schema.additionalProperties === false && JSON.stringify(Object.keys(schema.properties).sort()) === JSON.stringify([...schema.required].sort()) && Object.values(schema.properties).every(strictItems));
   const strictItems = (schema) => schema.type === "array" ? strictItems(schema.items) : strictObjects(schema);
-  for (const role of ["fable", "rook", "puck", "vera"]) assert.equal(strictItems(resultSchemaFor(role)), true, `${role}: codex --output-schema needs every object to require all of its properties and set additionalProperties false`);
+  for (const role of ["fable", "rook", "flint", "puck", "vera"]) assert.equal(strictItems(resultSchemaFor(role)), true, `${role}: codex --output-schema needs every object to require all of its properties and set additionalProperties false`);
   const result = { requirements: [{ requirement_id: "R-01" }] };
   assert.deepEqual(parseHarnessOutput({ harness: "claude", stdout: JSON.stringify({ type: "result", result: '{"requirements":[}]', structured_output: result }) }), result);
 });
@@ -115,7 +129,7 @@ test("codex JSONL stdout falls back to the last agent message when the final-mes
 
 test("harness usage is normalized to uncached input, cache reads and writes, output, and cost", () => {
   const jsonl = (...lines) => lines.map((line) => JSON.stringify(line)).join("\n");
-  assert.deepEqual(parseHarnessUsage({ harness: "codex", stdout: jsonl({ type: "turn.completed", usage: { input_tokens: 24763, cached_input_tokens: 24448, output_tokens: 122 } }, { type: "turn.completed", usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 8 } }) }), { input_tokens: 415, cache_read_tokens: 24448, cache_write_tokens: 0, output_tokens: 130, cost_usd: null });
+  assert.deepEqual(parseHarnessUsage({ harness: "codex", stdout: jsonl({ type: "turn.completed", usage: { input_tokens: 24763, cached_input_tokens: 24448, output_tokens: 122 } }, { type: "turn.completed", usage: { input_tokens: 100, cached_input_tokens: 0, cache_write_input_tokens: 40, output_tokens: 8 } }) }), { input_tokens: 375, cache_read_tokens: 24448, cache_write_tokens: 40, output_tokens: 130, cost_usd: null });
   const gemini = JSON.stringify({ response: "{}", stats: { models: { "gemini-pro": { tokens: { prompt: 1000, cached: 400, candidates: 50, thoughts: 25 } }, "gemini-flash": { tokens: { prompt: 10, cached: 0, candidates: 5, thoughts: 0 } } } } }, null, 2);
   assert.deepEqual(parseHarnessUsage({ harness: "gemini", stdout: gemini }), { input_tokens: 610, cache_read_tokens: 400, cache_write_tokens: 0, output_tokens: 80, cost_usd: null });
   assert.deepEqual(parseHarnessUsage({ harness: "opencode", stdout: jsonl({ type: "step_finish", part: { cost: 0.25, tokens: { input: 10, output: 4, reasoning: 2, cache: { read: 90, write: 5 } } } }, { type: "text", part: { text: "{}" } }, { type: "step_finish", part: { cost: 0.5, tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } } } }) }), { input_tokens: 11, cache_read_tokens: 90, cache_write_tokens: 5, output_tokens: 7, cost_usd: 0.75 });
