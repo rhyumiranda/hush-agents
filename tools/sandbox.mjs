@@ -54,7 +54,7 @@ Implement \`quoteShipping({ weightKg, zone, speed })\` in \`src/shipping.js\`.
 ## R-02 Discount codes
 Implement \`applyDiscount(totalCents, code)\` in \`src/discount.js\`.
 - Code \`SAVE10\` takes 10% off. Code \`FLAT500\` takes 500 cents off.
-- The result is never below 0 and is a whole number of cents.
+- The result is never below 0. Round it to a whole number of cents with \`Math.round\`.
 - Any other code returns \`totalCents\` unchanged.
 `);
 execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
