@@ -36,7 +36,7 @@ function reportDigest(report) {
   return sha(canonical(copy));
 }
 
-/** Fake harness adapter. flintCommits: "all" (Flint commits its work), "none" (Flint leaves it uncommitted), "partial" (commits a draft, then leaves the final edit uncommitted). */
+/** Fake harness adapter. flintCommits: "all" (Flint commits its work), "none" (Flint leaves it uncommitted), "partial" (commits a draft, then leaves the final edit uncommitted), "blocked" (Flint returns BLOCKED and edits nothing). */
 function adapterFixture({ flintCommits = "all" } = {}) {
   return `
 import { execFileSync } from "node:child_process";
@@ -70,6 +70,7 @@ if (input.role === "fable" && input.prd_text.includes("MODEL_SHAPED")) {
 } else if (input.role === "flint") {
   const mode = ${JSON.stringify(flintCommits)};
   const commit = (message) => { execFileSync("git", ["add", "result.txt"], { cwd: input.worktree_path }); execFileSync("git", ["commit", "-m", message], { cwd: input.worktree_path, stdio: "ignore" }); };
+  if (mode === "blocked") { process.stdout.write(JSON.stringify({ status: "BLOCKED", block_code: "STALE_PLAN", block_reason: "packet has no plan version", local_checks: [] })); process.exit(0); }
   if (mode === "partial") { writeFileSync(input.worktree_path + "/result.txt", "draft\\n"); commit("feat: draft result"); }
   writeFileSync(input.worktree_path + "/result.txt", "implemented\\n");
   if (mode === "all") commit("feat: implement result");
@@ -196,4 +197,13 @@ test("Hush commits work that Flint left uncommitted, and integration carries eve
     const merge = state.entities.merge_event["MQ-main-CAND-TASK-1"];
     assert.equal(readFileSync(join(merge.integration_path, "result.txt"), "utf8"), "implemented\n", flintCommits);
   }
+});
+
+test("a run blocks with Flint's own block code when Flint returns BLOCKED", () => {
+  const fixture = setupFixture({ flintCommits: "blocked" });
+  const result = run(["run", "prd.md", "--repo", fixture.repo, "--target", "main", "--config", fixture.config, "--json"], fixture.repo);
+  assert.equal(result.status, 3, result.stderr || result.stdout);
+  const summary = JSON.parse(result.stdout);
+  assert.equal(summary.status, "BLOCKED");
+  assert.deepEqual([summary.blockers.task_id, summary.blockers.reason, summary.blockers.errors], ["TASK-1", "STALE_PLAN", ["packet has no plan version"]]);
 });

@@ -23,14 +23,14 @@ Authority boundaries:
 - Puck owns independent verification.
 - Vera owns requirement-alignment verdicts when Hush marks `vera_required: true`.
 
-You need one immutable task packet before editing. It must contain: run ID, task ID, plan version, packet ID, packet digest, base commit SHA, worktree path and branch, requirement IDs with revisions, requirements, acceptance checks, writable surfaces with allowed operations, exclusive hub ownership, non-goals, dependency artifacts/contracts/verifier results, required local checks, evidence requirements, and `vera_required` with trigger.
+You need one immutable Hush task packet (`hec.v1`) before editing. Hush sends it as `packet`, together with `worktree_path`, `base_sha`, and the requirement records. These packet fields are the complete contract: `run_id`, `task_id`, `plan_id`, `packet_id`, `packet_revision`, `requirement_map_revision`, `digest`, `base_sha`, `requirements`, `allowed_paths`, `write_paths`, `allowed_operations`, `blocked_paths` (the non-goals), `exclusive_hubs`, `dependencies`, `required_commands`, `acceptance_checks`, `expected_evidence`, `vera_required`, `vera_trigger`, and `packet_state`. `plan_id` with `packet_revision` and `requirement_map_revision` is the plan version. Do not require a field that is not in this list.
 
 If the packet is missing, incomplete, superseded, or inconsistent, do not edit. Return `BLOCKED` with the most specific code: `REQUIREMENT_QUESTION`, `DEPENDENCY_CONFLICT`, `OWNERSHIP_CONFLICT`, `STALE_PLAN`, `PACKET_SUPERSEDED`, `TASK_TOO_BROAD`, `IMPLEMENTATION_FAILURE`, or `ENVIRONMENT_FAILURE`.
 
 Preflight before editing:
-1. Verify packet ID/digest and that Hush has not superseded it.
-2. Verify current worktree and HEAD match the packet's worktree path, branch, and base SHA.
-3. Verify all dependencies against their artifact identities, verifier results, and exported contracts.
+1. Verify that `packet_state` is `ACTIVE`.
+2. Verify that `git rev-parse HEAD` in `worktree_path` equals `base_sha`.
+3. Verify that `dependencies` is empty. Hush admits a task only after the tasks that it depends on are accepted.
 4. Verify every required acceptance check and writable surface is present.
 5. Verify no blocked product decision affects this task.
 6. Inspect assigned files and nearby completed-contract files. Record files/symbols inspected and the project patterns followed.

@@ -3,11 +3,12 @@
  * Build a throwaway sandbox for one live, end-to-end `hush-agents run`.
  *
  * Usage:
- *   node tools/sandbox.mjs [dir] [--harness claude|codex|gemini|opencode] [--model <name>] [--review-model <name>] [--workers <n>]
+ *   node tools/sandbox.mjs [dir] [--harness claude|codex|gemini|opencode] [--model <name>] [--review-model <name>]
+ *     [--effort <level>] [--review-effort <level>] [--workers <n>]
  *
  * Default dir: ../hush-sandbox, next to this repository. The command deletes and recreates the dir.
- * --model applies to Flint. --review-model applies to Fable, Rook, Puck, and Vera; it defaults to --model.
- * Leave out both flags to use the default model of the harness.
+ * --model and --effort apply to Flint. --review-model and --review-effort apply to Fable, Rook, Puck, and Vera; they
+ * default to --model and --effort. Leave out the flags to use the defaults of the harness.
  *
  * The sandbox holds a small Node repo with a PRD and `npm test`, a run config that calls the real harness CLI through
  * `hush-agents harness-adapter`, and `run.sh`. A live run uses real model calls and costs tokens.
@@ -26,6 +27,8 @@ const sandbox = resolve(positional ?? join(hushRoot, "..", "hush-sandbox"));
 const harness = option("--harness", "claude");
 const model = option("--model");
 const reviewModel = option("--review-model", model);
+const effort = option("--effort");
+const reviewEffort = option("--review-effort", effort);
 const workers = Number(option("--workers", "2"));
 if (!["claude", "codex", "gemini", "opencode"].includes(harness)) throw new Error(`unsupported --harness ${harness}`);
 
@@ -73,13 +76,16 @@ const environment = {
     .map(([category, policy], index) => ({ hazard_id: `HAZ-${index}`, repository: repo, category, policy, status: "MITIGATED", evidence: { method: "sandbox", source: "tools/sandbox.mjs" } })),
 };
 const cli = join(hushRoot, "bin", "hush-agents.mjs");
-const adapter = (role) => ({
-  command: [process.execPath, cli, "harness-adapter", "--harness", harness, "--agent", role, ...((role === "flint" ? model : reviewModel) ? ["--model", role === "flint" ? model : reviewModel] : [])],
-  // Live model calls take minutes. The bridge itself stops a harness after 10 minutes.
-  timeout_ms: 15 * 60 * 1000,
-  // The runner passes only PATH by default. The harness CLIs need HOME to find their login and the installed profiles.
-  pass_env: ["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "TERM", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
-});
+const adapter = (role) => {
+  const [roleModel, roleEffort] = role === "flint" ? [model, effort] : [reviewModel, reviewEffort];
+  return {
+    command: [process.execPath, cli, "harness-adapter", "--harness", harness, "--agent", role, ...(roleModel ? ["--model", roleModel] : []), ...(roleEffort ? ["--effort", roleEffort] : [])],
+    // Live model calls take minutes. The bridge itself stops a harness after 10 minutes.
+    timeout_ms: 15 * 60 * 1000,
+    // The runner passes only PATH by default. The harness CLIs need HOME to find their login and the installed profiles.
+    pass_env: ["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "TERM", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
+  };
+};
 const config = join(sandbox, "run-config.json");
 writeFileSync(config, `${JSON.stringify({
   setup_profile: profile,
@@ -106,7 +112,7 @@ ${harness} account.
     ./run.sh                       run the PRD in repo/docs/prd.md through all five roles
     ./run.sh --resume <run-id>     resume an interrupted run
 
-Harness: ${harness}. Flint model: ${model ?? "harness default"}. Review model: ${reviewModel ?? "harness default"}. Workers: ${workers}.
+Harness: ${harness}. Flint model: ${model ?? "harness default"} (effort ${effort ?? "default"}). Review model: ${reviewModel ?? "harness default"} (effort ${reviewEffort ?? "default"}). Workers: ${workers}.
 Results: repo/.hush/runs/<run-id>/runner-summary.json. The \`usage\` block shows time and tokens for each role.
 
 Regenerate at any time:
@@ -115,4 +121,4 @@ Regenerate at any time:
 
 Delete the whole folder when you are done.
 `);
-console.log(JSON.stringify({ sandbox, harness, model: model ?? null, review_model: reviewModel ?? null, workers, run: runScript }));
+console.log(JSON.stringify({ sandbox, harness, model: model ?? null, review_model: reviewModel ?? null, effort: effort ?? null, review_effort: reviewEffort ?? null, workers, run: runScript }));
